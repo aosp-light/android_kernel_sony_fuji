@@ -1,22 +1,12 @@
 #!/bin/bash
-echo "Kernel Build..."
-echo
 echo "Cleanup..."
 echo
 rm -rf modules
-rm -rf boot
 mkdir modules
-mkdir boot
-# Change Dir
 cd ../
-echo "Building..."
-echo
-ARCH=arm CROSS_COMPILE=../arm-eabi-4.7/bin/arm-eabi- make -j24
-echo "Copying zImage..."
-echo
-cp arch/arm/boot/zImage X-Tools/boot/zImage
 echo "Copying Modules..."
 echo
+cp drivers/crypto/msm/qcrypto.ko X-Tools/modules/qcrypto.ko
 cp drivers/crypto/msm/qcedev.ko X-Tools/modules/qcedev.ko
 cp drivers/crypto/msm/qce.ko X-Tools/modules/qce.ko
 cp drivers/input/evbug.ko X-Tools/modules/evbug.ko
@@ -33,6 +23,5 @@ cp arch/arm/mach-msm/dal_remotetest.ko X-Tools/modules/dal_remotetest.ko
 cp arch/arm/mach-msm/dma_test.ko X-Tools/modules/dma_test.ko
 cp drivers/video/backlight/lcd.ko X-Tools/modules/lcd.ko
 cp drivers/scsi/scsi_wait_scan.ko X-Tools/modules/scsi_wait_scan.ko
-
-echo "Done! Press ENTER for exit..."
-read && exit
+cp drivers/misc/msm_tsif.ko X-Tools/modules/msm_tsif.ko
+cp drivers/misc/tsif_chrdev.ko X-Tools/modules/tsif_chrdev.ko
