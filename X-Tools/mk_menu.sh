@@ -1,6 +1,6 @@
 #!/bin/bash
 cd ../
-ARCH=arm CROSS_COMPILE=../arm-eabi-4.7/bin/arm-eabi- make mrproper
-cp arch/arm/configs/fuji_hikari_row_defconfig .config
+ARCH=arm make mrproper
+cp arch/arm/configs/fuji_hikari_defconfig .config
 #cp arch/arm/configs/fuji_aoba_defconfig .config
-ARCH=arm CROSS_COMPILE=../arm-eabi-4.7/bin/arm-eabi- make menuconfig
+ARCH=arm make menuconfig
