@@ -12,6 +12,7 @@
 #include <linux/debug_locks.h>
 #include <linux/delay.h>
 #include <linux/export.h>
+#include <linux/bug.h>
 
 void __raw_spin_lock_init(raw_spinlock_t *lock, const char *name,
 			  struct lock_class_key *key)
@@ -58,12 +59,13 @@ static void spin_dump(raw_spinlock_t *lock, const char *msg)
 	printk(KERN_EMERG "BUG: spinlock %s on CPU#%d, %s/%d\n",
 		msg, raw_smp_processor_id(),
 		current->comm, task_pid_nr(current));
-	printk(KERN_EMERG " lock: %ps, .magic: %08x, .owner: %s/%d, "
+	printk(KERN_EMERG " lock: %pS, .magic: %08x, .owner: %s/%d, "
 			".owner_cpu: %d\n",
 		lock, lock->magic,
 		owner ? owner->comm : "<none>",
 		owner ? task_pid_nr(owner) : -1,
 		lock->owner_cpu);
+	BUG_ON(PANIC_CORRUPTION);
 	dump_stack();
 }
 
@@ -118,10 +120,6 @@ static void __spin_lock_debug(raw_spinlock_t *lock)
 		/* lockup suspected: */
 		if (print_once) {
 			print_once = 0;
-			printk(KERN_EMERG "BUG: spinlock lockup on CPU#%d, "
-					"%s/%d, %ps\n",
-				raw_smp_processor_id(), current->comm,
-				task_pid_nr(current), lock);
 			spin_dump(lock, "lockup");
 #ifdef CONFIG_SMP
 			trigger_all_cpu_backtrace();

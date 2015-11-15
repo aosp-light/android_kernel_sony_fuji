@@ -2,7 +2,6 @@
  * composite.c - infrastructure for Composite USB Gadgets
  *
  * Copyright (C) 2006-2008 David Brownell
- * Copyright (C) 2012 Sony Mobile Communications AB.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -176,13 +175,12 @@ ep_found:
 	_ep->comp_desc = comp_desc;
 	if (g->speed == USB_SPEED_SUPER) {
 		switch (usb_endpoint_type(_ep->desc)) {
-		case USB_ENDPOINT_XFER_BULK:
-		case USB_ENDPOINT_XFER_INT:
-			_ep->maxburst = comp_desc->bMaxBurst;
-			break;
 		case USB_ENDPOINT_XFER_ISOC:
 			/* mult: bits 1:0 of bmAttributes */
 			_ep->mult = comp_desc->bmAttributes & 0x3;
+		case USB_ENDPOINT_XFER_BULK:
+		case USB_ENDPOINT_XFER_INT:
+			_ep->maxburst = comp_desc->bMaxBurst;
 			break;
 		default:
 			/* Do nothing for control endpoints */
@@ -689,7 +687,6 @@ static int set_config(struct usb_composite_dev *cdev,
 	power = c->bMaxPower ? (2 * c->bMaxPower) : CONFIG_USB_GADGET_VBUS_DRAW;
 done:
 	usb_gadget_vbus_draw(gadget, power);
-
 	if (result >= 0 && cdev->delayed_status)
 		result = USB_GADGET_DELAYED_STATUS;
 	return result;
@@ -1549,11 +1546,7 @@ composite_suspend(struct usb_gadget *gadget)
 
 	cdev->suspended = 1;
 
-	if (cdev->config
-		&& (cdev->config->bmAttributes & USB_CONFIG_ATT_WAKEUP))
-		usb_gadget_vbus_draw(gadget, 2);
-	else
-		usb_gadget_vbus_draw(gadget, 0);
+	usb_gadget_vbus_draw(gadget, 2);
 }
 
 static void
@@ -1630,7 +1623,7 @@ int usb_composite_probe(struct usb_composite_driver *driver,
 {
 	int retval;
 
-	if (!driver || !driver->dev || !bind || composite)
+	if (!driver || !driver->dev || !bind)
 		return -EINVAL;
 
 	if (!driver->name)

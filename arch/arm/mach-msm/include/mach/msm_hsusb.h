@@ -1,8 +1,7 @@
 /* linux/include/mach/hsusb.h
  *
  * Copyright (C) 2008 Google, Inc.
- * Copyright (c) 2009-2012, Code Aurora Forum. All rights reserved.
- * Copyright (c) 2011-2012 Sony Ericsson Mobile Communications AB.
+ * Copyright (c) 2009-2012, The Linux Foundation. All rights reserved.
  * Author: Brian Swetland <swetland@google.com>
  *
  * This software is licensed under the terms of the GNU General Public
@@ -210,9 +209,5 @@ struct msm_usb_host_platform_data {
 	int  (*vbus_init)(int init);
 	struct clk *ebi1_clk;
 };
-
-int msm_ep_config(struct usb_ep *ep);
-int msm_ep_unconfig(struct usb_ep *ep);
-int msm_data_fifo_config(struct usb_ep *ep, u32 addr, u32 size);
 
 #endif

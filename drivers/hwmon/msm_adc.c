@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -87,7 +87,6 @@ struct msm_adc_drv {
 	struct workqueue_struct		*wq;
 	atomic_t			online;
 	atomic_t			total_outst;
-	atomic_t			registered;
 	wait_queue_head_t		total_outst_wait;
 
 	/*  EPM variables  */
@@ -781,9 +780,6 @@ int32_t adc_channel_open(uint32_t channel, void **h)
 	if (!msm_adc_drv)
 		return -EFAULT;
 
-	if (!atomic_read(&msm_adc->registered))
-		return -ENODEV;
-
 #ifdef CONFIG_PMIC8058_XOADC
 	if (pm8058_xoadc_registered() <= 0)
 		return -ENODEV;
@@ -1466,7 +1462,6 @@ static int __devinit msm_adc_probe(struct platform_device *pdev)
 	}
 	conv_first_request = true;
 
-	atomic_set(&msm_adc->registered, 1);
 	pr_info("msm_adc successfully registered\n");
 
 	return 0;
@@ -1486,8 +1481,6 @@ static int __devexit msm_adc_remove(struct platform_device *pdev)
 	atomic_set(&msm_adc->online, 0);
 
 	atomic_set(&msm_adc->rpc_online, 0);
-
-	atomic_set(&msm_adc->registered, 0);
 
 	misc_deregister(&msm_adc->misc);
 

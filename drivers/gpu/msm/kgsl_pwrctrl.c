@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -766,12 +766,12 @@ DEVICE_ATTR(thermal_pwrlevel, 0644,
 DEVICE_ATTR(num_pwrlevels, 0444,
 	kgsl_pwrctrl_num_pwrlevels_show,
 	NULL);
-DEVICE_ATTR(reset_count, 0444,
-	kgsl_pwrctrl_reset_count_show,
-	NULL);
 DEVICE_ATTR(pmqos_latency, 0644,
 	kgsl_pwrctrl_pmqos_latency_show,
 	kgsl_pwrctrl_pmqos_latency_store);
+DEVICE_ATTR(reset_count, 0444,
+	kgsl_pwrctrl_reset_count_show,
+	NULL);
 DEVICE_ATTR(force_clk_on, 0644,
 	kgsl_pwrctrl_force_clk_on_show,
 	kgsl_pwrctrl_force_clk_on_store);
@@ -793,8 +793,8 @@ static const struct device_attribute *pwrctrl_attr_list[] = {
 	&dev_attr_min_pwrlevel,
 	&dev_attr_thermal_pwrlevel,
 	&dev_attr_num_pwrlevels,
-	&dev_attr_reset_count,
 	&dev_attr_pmqos_latency,
+	&dev_attr_reset_count,
 	&dev_attr_force_clk_on,
 	&dev_attr_force_bus_on,
 	&dev_attr_force_rail_on,
@@ -1048,7 +1048,7 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 
 	pwr->max_pwrlevel = 0;
 	pwr->min_pwrlevel = pdata->num_levels - 2;
-	pwr->thermal_pwrlevel = 0;
+	pwr->thermal_pwrlevel = pdata->max_level;
 
 	pwr->active_pwrlevel = pdata->init_level;
 	pwr->default_pwrlevel = pdata->init_level;
@@ -1332,8 +1332,6 @@ _sleep(struct kgsl_device *device)
 		break;
 	}
 
-	kgsl_mmu_disable_clk_on_ts(&device->mmu, 0, false);
-
 	return 0;
 }
 
@@ -1352,6 +1350,7 @@ _slumber(struct kgsl_device *device)
 		del_timer_sync(&device->idle_timer);
 		/* make sure power is on to stop the device*/
 		kgsl_pwrctrl_enable(device);
+		kgsl_pwrctrl_irq(device, KGSL_PWRFLAGS_ON);
 		device->ftbl->suspend_context(device);
 		device->ftbl->stop(device);
 		_sleep_accounting(device);
@@ -1383,7 +1382,6 @@ int kgsl_pwrctrl_sleep(struct kgsl_device *device)
 		break;
 	case KGSL_STATE_SLEEP:
 		status = _sleep(device);
-		kgsl_mmu_disable_clk_on_ts(&device->mmu, 0, false);
 		break;
 	case KGSL_STATE_SLUMBER:
 		status = _slumber(device);
@@ -1434,6 +1432,7 @@ int kgsl_pwrctrl_wake(struct kgsl_device *device)
 			kgsl_pwrstate_to_str(state),
 			context ? context->id : -1, ts_processed);
 		kgsl_context_put(context);
+
 		/* fall through */
 	case KGSL_STATE_NAP:
 		/* Turn on the core clocks */
@@ -1464,7 +1463,10 @@ void kgsl_pwrctrl_enable(struct kgsl_device *device)
 	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
 	/* Order pwrrail/clk sequence based upon platform */
 	kgsl_pwrctrl_pwrrail(device, KGSL_PWRFLAGS_ON);
-	kgsl_pwrctrl_pwrlevel_change(device, pwr->default_pwrlevel);
+
+	if (pwr->constraint.type == KGSL_CONSTRAINT_NONE)
+		kgsl_pwrctrl_pwrlevel_change(device, pwr->default_pwrlevel);
+
 	kgsl_pwrctrl_clk(device, KGSL_PWRFLAGS_ON, KGSL_STATE_ACTIVE);
 	kgsl_pwrctrl_axi(device, KGSL_PWRFLAGS_ON);
 }
@@ -1537,13 +1539,11 @@ int kgsl_active_count_get(struct kgsl_device *device)
 	int ret = 0;
 	BUG_ON(!mutex_is_locked(&device->mutex));
 
-	if (atomic_read(&device->active_cnt) == 0) {
-		if (device->requested_state == KGSL_STATE_SUSPEND ||
-				device->state == KGSL_STATE_SUSPEND) {
-			mutex_unlock(&device->mutex);
-			wait_for_completion(&device->hwaccess_gate);
-			mutex_lock(&device->mutex);
-		}
+	if ((atomic_read(&device->active_cnt) == 0) &&
+		(device->state != KGSL_STATE_ACTIVE)) {
+		mutex_unlock(&device->mutex);
+		wait_for_completion(&device->hwaccess_gate);
+		mutex_lock(&device->mutex);
 
 		ret = kgsl_pwrctrl_wake(device);
 	}
@@ -1596,12 +1596,9 @@ void kgsl_active_count_put(struct kgsl_device *device)
 
 	if (atomic_dec_and_test(&device->active_cnt)) {
 		if (device->state == KGSL_STATE_ACTIVE &&
-				 device->requested_state == KGSL_STATE_NONE) {
+			device->requested_state == KGSL_STATE_NONE) {
 			kgsl_pwrctrl_request_state(device, KGSL_STATE_NAP);
-			if (kgsl_pwrctrl_sleep(device)) {
-				kgsl_pwrctrl_request_state(device, KGSL_STATE_NAP);
-				queue_work(device->work_queue, &device->idle_check_ws);
-			}
+			queue_work(device->work_queue, &device->idle_check_ws);
 		}
 
 		mod_timer(&device->idle_timer,
@@ -1631,16 +1628,21 @@ static int _check_active_count(struct kgsl_device *device, int count)
 int kgsl_active_count_wait(struct kgsl_device *device, int count)
 {
 	int result = 0;
+	long wait_jiffies = HZ;
 
 	BUG_ON(!mutex_is_locked(&device->mutex));
 
-	if (atomic_read(&device->active_cnt) > count) {
-		int ret;
+	while (atomic_read(&device->active_cnt) > count) {
+		long ret;
 		mutex_unlock(&device->mutex);
 		ret = wait_event_timeout(device->active_cnt_wq,
-			_check_active_count(device, count), HZ);
+			_check_active_count(device, count), wait_jiffies);
 		mutex_lock(&device->mutex);
 		result = ret == 0 ? -ETIMEDOUT : 0;
+		if (!result)
+			wait_jiffies = ret;
+		else
+			break;
 	}
 
 	return result;

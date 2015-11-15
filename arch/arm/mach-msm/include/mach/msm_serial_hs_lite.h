@@ -1,5 +1,4 @@
-/* Copyright (c) 2011, Code Aurora Forum. All rights reserved.
- * Copyright (c) 2011 Sony Ericsson Mobile Communications AB.
+/* Copyright (c) 2011, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -20,7 +19,6 @@ struct msm_serial_hslite_platform_data {
 	unsigned uart_tx_gpio;
 	unsigned uart_rx_gpio;
 	int line;
-	int type;
 };
 
 #endif

@@ -1,4 +1,4 @@
-/* Copyright (c) 2002,2007-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2002,2007-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -217,13 +217,17 @@ static irqreturn_t z180_irq_handler(struct kgsl_device *device)
 
 			count >>= 8;
 			count &= 255;
-			atomic_add(count, &z180_dev->timestamp);
+			z180_dev->timestamp += count;
 
 			queue_work(device->work_queue, &device->ts_expired_ws);
 			wake_up_interruptible(&device->wait_queue);
 		}
 	}
 
+	if (device->requested_state == KGSL_STATE_NONE) {
+		kgsl_pwrctrl_request_state(device, KGSL_STATE_NAP);
+		queue_work(device->work_queue, &device->idle_check_ws);
+	}
 	mod_timer_pending(&device->idle_timer,
 			jiffies + device->pwrctrl.interval_timeout);
 
@@ -352,7 +356,7 @@ static int room_in_rb(struct z180_device *device)
 {
 	int ts_diff;
 
-	ts_diff = device->current_timestamp - atomic_read(&device->timestamp);
+	ts_diff = device->current_timestamp - device->timestamp;
 
 	return ts_diff < Z180_PACKET_COUNT;
 }
@@ -369,7 +373,7 @@ int z180_idle(struct kgsl_device *device)
 	struct z180_device *z180_dev = Z180_DEVICE(device);
 
 	if (timestamp_cmp(z180_dev->current_timestamp,
-		atomic_read(&z180_dev->timestamp)) > 0)
+		z180_dev->timestamp) > 0)
 		status = z180_wait(device, NULL,
 				z180_dev->current_timestamp,
 				Z180_IDLE_TIMEOUT);
@@ -447,7 +451,7 @@ z180_cmdstream_issueibcmds(struct kgsl_device_private *dev_priv,
 			     "Cannot make kernel mapping for gpuaddr 0x%x\n",
 			     cmd);
 		result = -EINVAL;
-		goto error;
+		goto error_put;
 	}
 
 	KGSL_CMD_INFO(device, "ctxt %d ibaddr 0x%08x sizedwords %d\n",
@@ -477,7 +481,7 @@ z180_cmdstream_issueibcmds(struct kgsl_device_private *dev_priv,
 	if (result < 0) {
 		KGSL_CMD_ERR(device, "wait_event_interruptible_timeout "
 			"failed: %ld\n", result);
-		goto error;
+		goto error_put;
 	}
 	result = 0;
 
@@ -509,13 +513,19 @@ z180_cmdstream_issueibcmds(struct kgsl_device_private *dev_priv,
 
 	z180_cmdwindow_write(device, ADDR_VGV3_CONTROL, cmd);
 	z180_cmdwindow_write(device, ADDR_VGV3_CONTROL, 0);
+	kgsl_memdesc_unmap(&entry->memdesc);
+error_put:
+	kgsl_mem_entry_put(entry);
 error:
 	kgsl_trace_issueibcmds(device, context->id, cmdbatch,
-		*timestamp, cmdbatch->flags, result, 0);
+		*timestamp, cmdbatch ? cmdbatch->flags : 0, result, 0);
 
 	kgsl_active_count_put(device);
 error_active_count:
 	mutex_unlock(&device->mutex);
+
+	if (!result)
+		kgsl_cmdbatch_destroy(cmdbatch);
 
 	return (int)result;
 }
@@ -586,7 +596,7 @@ static int z180_init(struct kgsl_device *device)
 {
 	struct z180_device *z180_dev = Z180_DEVICE(device);
 
-	atomic_set(&z180_dev->timestamp, 0);
+	z180_dev->timestamp = 0;
 	z180_dev->current_timestamp = 0;
 
 	return 0;
@@ -611,7 +621,6 @@ static int z180_start(struct kgsl_device *device)
 
 	z180_cmdstream_start(device);
 
-	mod_timer(&device->idle_timer, jiffies + FIRST_TIMEOUT);
 	kgsl_pwrctrl_irq(device, KGSL_PWRFLAGS_ON);
 	device->ftbl->irqctrl(device, 1);
 
@@ -702,7 +711,7 @@ static bool z180_isidle(struct kgsl_device *device)
 {
 	struct z180_device *z180_dev = Z180_DEVICE(device);
 
-	return (timestamp_cmp(atomic_read(&z180_dev->timestamp),
+	return (timestamp_cmp(z180_dev->timestamp,
 		z180_dev->current_timestamp) == 0) ? true : false;
 }
 
@@ -849,7 +858,7 @@ static unsigned int z180_readtimestamp(struct kgsl_device *device,
 	struct z180_device *z180_dev = Z180_DEVICE(device);
 	(void)context;
 	/* get current EOP timestamp */
-	return atomic_read(&z180_dev->timestamp);
+	return z180_dev->timestamp;
 }
 
 static int z180_waittimestamp(struct kgsl_device *device,
@@ -918,11 +927,16 @@ z180_drawctxt_create(struct kgsl_device_private *dev_priv,
 static int
 z180_drawctxt_detach(struct kgsl_context *context)
 {
+	int ret;
 	struct kgsl_device *device;
 	struct z180_device *z180_dev;
 
 	device = context->device;
 	z180_dev = Z180_DEVICE(device);
+
+	ret = kgsl_active_count_get(device);
+	if (ret)
+		return ret;
 
 	z180_idle(device);
 
@@ -935,6 +949,7 @@ z180_drawctxt_detach(struct kgsl_context *context)
 				KGSL_MMUFLAGS_PTUPDATE);
 	}
 
+	kgsl_active_count_put(device);
 	return 0;
 }
 

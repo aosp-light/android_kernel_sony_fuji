@@ -1,5 +1,4 @@
-/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
- * Copyright (C) 2011-2012 Sony Ericsson Mobile Communications AB.
+/* Copyright (c) 2010-2011, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -72,7 +71,6 @@ struct pm8901_vreg_pdata {
 	unsigned			pull_down_enable;
 	unsigned			pin_ctrl;
 	enum pm8901_vreg_pin_fn		pin_fn;
-	unsigned			level;       /* For use with MPP. */
 };
 
 #endif

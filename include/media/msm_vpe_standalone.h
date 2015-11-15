@@ -12,7 +12,7 @@
 #define __LINUX_MSM_VPE_H
 
 #include <linux/types.h>
-#include "msm_camera.h"
+#include "msm_camera_legacy.h"
 
 #define MSM_VPE_IOCTL_MAGIC 'v'
 

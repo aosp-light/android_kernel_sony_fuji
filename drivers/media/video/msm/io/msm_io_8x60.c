@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -89,11 +89,9 @@ static struct clk *camio_vpe_clk;
 static struct clk *camio_vpe_pclk;
 static struct regulator *fs_vfe;
 static struct regulator *fs_vpe;
-#if !defined(CONFIG_SEMC_CAM_MAIN) && !defined(CONFIG_SEMC_CAM_SUB) && !defined(CONFIG_SONY_CAM_MAIN_V4L2) && !defined(CONFIG_SONY_CAM_SUB_V4L2)
 static struct regulator *ldo15;
 static struct regulator *lvs0;
 static struct regulator *ldo25;
-#endif
 
 static struct msm_camera_io_ext camio_ext;
 static struct msm_camera_io_clk camio_clk;
@@ -105,7 +103,6 @@ struct msm_bus_scale_pdata *cam_bus_scale_table;
 
 static void msm_camera_vreg_enable(void)
 {
-#if !defined(CONFIG_SEMC_CAM_MAIN) && !defined(CONFIG_SEMC_CAM_SUB) && !defined(CONFIG_SONY_CAM_MAIN_V4L2) && !defined(CONFIG_SONY_CAM_SUB_V4L2)
 	ldo15 = regulator_get(NULL, "8058_l15");
 	if (IS_ERR(ldo15)) {
 		pr_err("%s: VREG LDO15 get failed\n", __func__);
@@ -146,7 +143,6 @@ static void msm_camera_vreg_enable(void)
 		pr_err("%s: VREG LDO25 enable failed\n", __func__);
 		goto ldo25_put;
 	}
-#endif
 
 	fs_vfe = regulator_get(NULL, "fs_vfe");
 	if (IS_ERR(fs_vfe)) {
@@ -159,7 +155,6 @@ static void msm_camera_vreg_enable(void)
 	}
 	return;
 
-#if !defined(CONFIG_SEMC_CAM_MAIN) && !defined(CONFIG_SEMC_CAM_SUB) && !defined(CONFIG_SONY_CAM_MAIN_V4L2) && !defined(CONFIG_SONY_CAM_SUB_V4L2)
 ldo25_disable:
 	regulator_disable(ldo25);
 ldo25_put:
@@ -172,12 +167,10 @@ ldo15_disable:
 	regulator_disable(ldo15);
 ldo15_put:
 	regulator_put(ldo15);
-#endif
 }
 
 static void msm_camera_vreg_disable(void)
 {
-#if !defined(CONFIG_SEMC_CAM_MAIN) && !defined(CONFIG_SEMC_CAM_SUB) && !defined(CONFIG_SONY_CAM_MAIN_V4L2) && !defined(CONFIG_SONY_CAM_SUB_V4L2)
 	if (ldo15) {
 		regulator_disable(ldo15);
 		regulator_put(ldo15);
@@ -192,7 +185,7 @@ static void msm_camera_vreg_disable(void)
 		regulator_disable(ldo25);
 		regulator_put(ldo25);
 	}
-#endif
+
 	if (fs_vfe) {
 		regulator_disable(fs_vfe);
 		regulator_put(fs_vfe);
@@ -274,10 +267,8 @@ int msm_camio_clk_enable(enum msm_camio_clk_type clktype)
 		break;
 	}
 
-	if (!IS_ERR(clk)) {
-		clk_prepare(clk);
+	if (!IS_ERR(clk))
 		clk_enable(clk);
-	}
 	else
 		rc = -1;
 	return rc;

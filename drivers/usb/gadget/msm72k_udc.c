@@ -2,11 +2,10 @@
  * Driver for HighSpeed USB Client Controller in MSM7K
  *
  * Copyright (C) 2008 Google, Inc.
- * Copyright (c) 2009-2012, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2009-2013, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2010-2012 Sony Ericsson Mobile Communications AB.
  * Author: Mike Lockwood <lockwood@android.com>
  *         Brian Swetland <swetland@google.com>
- * Copyright (C) 2012 Sony Ericsson Mobile Communications AB.
- * Copyright (C) 2012 Sony Mobile Communications AB.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -312,7 +311,7 @@ static ssize_t print_switch_state(struct switch_dev *sdev, char *buf)
 
 static inline enum chg_type usb_get_chg_type(struct usb_info *ui)
 {
-	if ((readl_relaxed(USB_PORTSC) & PORTSC_LS) == PORTSC_LS) {
+	if ((readl(USB_PORTSC) & PORTSC_LS) == PORTSC_LS) {
 		return USB_CHG_TYPE__WALLCHARGER;
 	} else if (ui->pdata->prop_chg) {
 		if (ui->gadget.speed == USB_SPEED_LOW ||
@@ -627,6 +626,15 @@ static void config_ept(struct msm_endpoint *ept)
 {
 	struct usb_info *ui = ept->ui;
 	unsigned cfg = CONFIG_MAX_PKT(ept->ep.maxpacket) | CONFIG_ZLT;
+	const struct usb_endpoint_descriptor *desc = ept->ep.desc;
+	unsigned mult = 0;
+
+	if (desc && ((desc->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK)
+				== USB_ENDPOINT_XFER_ISOC)) {
+		cfg &= ~(CONFIG_MULT);
+		mult = ((ept->ep.maxpacket >> CONFIG_MULT_SHIFT) + 1) & 0x03;
+		cfg |= (mult << (ffs(CONFIG_MULT) - 1));
+	}
 
 	/* ep0 out needs interrupt-on-setup */
 	if (ept->bit == 0)
@@ -1387,6 +1395,9 @@ static void flush_endpoint_sw(struct msm_endpoint *ept)
 	struct msm_request *req, *next_req = NULL;
 	unsigned long flags;
 
+	if (!ept->req)
+		return;
+
 	/* inactive endpoints have nothing to do here */
 	if (ept->ep.maxpacket == 0)
 		return;
@@ -1431,8 +1442,12 @@ static void flush_endpoint(struct msm_endpoint *ept)
 static irqreturn_t usb_interrupt(int irq, void *data)
 {
 	struct usb_info *ui = data;
+	struct msm_otg *dev = to_msm_otg(ui->xceiv);
 	unsigned n;
 	unsigned long flags;
+
+	if (atomic_read(&dev->in_lpm))
+		return IRQ_NONE;
 
 	n = readl(USB_USBSTS);
 	writel(n, USB_USBSTS);
@@ -1443,7 +1458,6 @@ static irqreturn_t usb_interrupt(int irq, void *data)
 
 	if (n & STS_PCI) {
 		msm_hsusb_set_speed(ui);
-
 		if (atomic_read(&ui->configured)) {
 			wake_lock(&ui->wlock);
 
@@ -1457,6 +1471,7 @@ static irqreturn_t usb_interrupt(int irq, void *data)
 		} else {
 			msm_hsusb_set_state(USB_STATE_DEFAULT);
 		}
+
 #ifdef CONFIG_USB_OTG
 		/* notify otg to clear A_BIDL_ADIS timer */
 		if (ui->gadget.is_a_peripheral)
@@ -1465,7 +1480,7 @@ static irqreturn_t usb_interrupt(int irq, void *data)
 	}
 
 	if (n & STS_URI) {
-		dev_info(&ui->pdev->dev, "reset\n");
+		dev_dbg(&ui->pdev->dev, "reset\n");
 		spin_lock_irqsave(&ui->lock, flags);
 		ui->gadget.speed = USB_SPEED_UNKNOWN;
 		spin_unlock_irqrestore(&ui->lock, flags);
@@ -1515,7 +1530,7 @@ static irqreturn_t usb_interrupt(int irq, void *data)
 	}
 
 	if (n & STS_SLI) {
-		dev_info(&ui->pdev->dev, "suspend\n");
+		dev_dbg(&ui->pdev->dev, "suspend\n");
 
 		spin_lock_irqsave(&ui->lock, flags);
 		ui->usb_state = USB_STATE_SUSPENDED;
@@ -1701,7 +1716,7 @@ static void usb_do_work(struct work_struct *w)
 
 				pm_runtime_get_noresume(&ui->pdev->dev);
 				pm_runtime_resume(&ui->pdev->dev);
-				dev_info(&ui->pdev->dev,
+				dev_dbg(&ui->pdev->dev,
 					"msm72k_udc: IDLE -> ONLINE\n");
 				usb_reset(ui);
 				ret = request_irq(otg->irq, usb_interrupt,
@@ -1751,7 +1766,7 @@ static void usb_do_work(struct work_struct *w)
 				if (!ui->gadget.is_a_peripheral)
 					cancel_delayed_work_sync(&ui->chg_det);
 
-				dev_info(&ui->pdev->dev,
+				dev_dbg(&ui->pdev->dev,
 					"msm72k_udc: ONLINE -> OFFLINE\n");
 
 				atomic_set(&ui->running, 0);
@@ -1785,6 +1800,20 @@ static void usb_do_work(struct work_struct *w)
 				usb_phy_set_power(ui->xceiv, 0);
 
 				if (ui->irq) {
+					/* Disable and acknowledge all
+					 * USB interrupts before freeing
+					 * irq, so that no USB spurious
+					 * interrupt occurs during USB cable
+					 * disconnect which may lead to
+					 * IRQ nobody cared error.
+					 */
+					writel_relaxed(0, USB_USBINTR);
+					writel_relaxed(readl_relaxed(USB_USBSTS)
+								, USB_USBSTS);
+					/* Ensure that above STOREs are
+					 * completed before enabling
+					 * interrupts */
+					wmb();
 					free_irq(ui->irq, ui);
 					ui->irq = 0;
 				}
@@ -1845,12 +1874,12 @@ static void usb_do_work(struct work_struct *w)
 				break;
 			}
 			if (flags & USB_FLAG_RESET) {
-				dev_info(&ui->pdev->dev,
+				dev_dbg(&ui->pdev->dev,
 					"msm72k_udc: ONLINE -> RESET\n");
 				msm72k_pullup_internal(&ui->gadget, 0);
 				usb_reset(ui);
 				msm72k_pullup_internal(&ui->gadget, 1);
-				dev_info(&ui->pdev->dev,
+				dev_dbg(&ui->pdev->dev,
 					"msm72k_udc: RESET -> ONLINE\n");
 				break;
 			}
@@ -1864,7 +1893,7 @@ static void usb_do_work(struct work_struct *w)
 
 				pm_runtime_get_noresume(&ui->pdev->dev);
 				pm_runtime_resume(&ui->pdev->dev);
-				dev_info(&ui->pdev->dev,
+				dev_dbg(&ui->pdev->dev,
 					"msm72k_udc: OFFLINE -> ONLINE\n");
 
 				usb_reset(ui);
@@ -2335,6 +2364,9 @@ msm72k_queue(struct usb_ep *_ep, struct usb_request *req, gfp_t gfp_flags)
 	struct msm_endpoint *ep = to_msm_endpoint(_ep);
 	struct usb_info *ui = ep->ui;
 
+	if (!atomic_read(&ui->softconnect))
+		return -ENODEV;
+
 	if (ep == &ui->ep0in) {
 		struct msm_request *r = to_msm_request(req);
 		if (!req->length)
@@ -2361,6 +2393,13 @@ static int msm72k_dequeue(struct usb_ep *_ep, struct usb_request *_req)
 
 	struct msm_request *temp_req;
 	unsigned long flags;
+
+	if (ep->num == 0) {
+		/* Flush both out and in control endpoints */
+		flush_endpoint(&ui->ep0out);
+		flush_endpoint(&ui->ep0in);
+		return 0;
+	}
 
 	if (!(ui && req && ep->req))
 		return -EINVAL;

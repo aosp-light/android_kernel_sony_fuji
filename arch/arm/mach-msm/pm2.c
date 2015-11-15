@@ -3,7 +3,7 @@
  * MSM Power Management Routines
  *
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2008-2012 Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2008-2012 The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -882,7 +882,8 @@ static int msm_pm_power_collapse
 		WARN_ON(ret);
 	}
 
-	if (msm_cpr_ops)
+	/* Call CPR suspend only for "idlePC" case */
+	if (msm_cpr_ops && from_idle)
 		msm_cpr_ops->cpr_suspend();
 
 	msm_pm_irq_extns->enter_sleep1(true, from_idle,
@@ -1122,7 +1123,8 @@ static int msm_pm_power_collapse
 		WARN_ON(ret);
 	}
 
-	if (msm_cpr_ops)
+	/* Call CPR resume only for "idlePC" case */
+	if (msm_cpr_ops && from_idle)
 		msm_cpr_ops->cpr_resume();
 
 	return 0;
@@ -1177,7 +1179,8 @@ power_collapse_restore_gpio_bail:
 	if (collapsed)
 		smd_sleep_exit();
 
-	if (msm_cpr_ops)
+	/* Call CPR resume only for "idlePC" case */
+	if (msm_cpr_ops && from_idle)
 		msm_cpr_ops->cpr_resume();
 
 power_collapse_bail:
@@ -1292,7 +1295,7 @@ static int msm_pm_swfi(bool ramp_acpu)
 
 static int64_t msm_pm_timer_enter_suspend(int64_t *period)
 {
-	int time = 0;
+	int64_t time = 0;
 
 	time = msm_timer_get_sclk_time(period);
 	if (!time)

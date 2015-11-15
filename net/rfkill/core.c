@@ -256,6 +256,7 @@ static bool __rfkill_set_hw_state(struct rfkill *rfkill,
 static void rfkill_set_block(struct rfkill *rfkill, bool blocked)
 {
 	unsigned long flags;
+	bool prev, curr;
 	int err;
 
 	if (unlikely(rfkill->dev.power.power_state.event & PM_EVENT_SLEEP))
@@ -270,6 +271,8 @@ static void rfkill_set_block(struct rfkill *rfkill, bool blocked)
 		rfkill->ops->query(rfkill, rfkill->data);
 
 	spin_lock_irqsave(&rfkill->lock, flags);
+	prev = rfkill->state & RFKILL_BLOCK_SW;
+
 	if (rfkill->state & RFKILL_BLOCK_SW)
 		rfkill->state |= RFKILL_BLOCK_SW_PREV;
 	else
@@ -299,10 +302,15 @@ static void rfkill_set_block(struct rfkill *rfkill, bool blocked)
 	}
 	rfkill->state &= ~RFKILL_BLOCK_SW_SETCALL;
 	rfkill->state &= ~RFKILL_BLOCK_SW_PREV;
+	curr = rfkill->state & RFKILL_BLOCK_SW;
+
 	spin_unlock_irqrestore(&rfkill->lock, flags);
 
 	rfkill_led_trigger_event(rfkill);
-	rfkill_event(rfkill);
+
+	if (prev != curr)
+		rfkill_event(rfkill);
+
 }
 
 #ifdef CONFIG_RFKILL_INPUT
@@ -778,7 +786,8 @@ void rfkill_resume_polling(struct rfkill *rfkill)
 	if (!rfkill->ops->poll)
 		return;
 
-	schedule_work(&rfkill->poll_work.work);
+	queue_delayed_work(system_power_efficient_wq,
+			   &rfkill->poll_work, 0);
 }
 EXPORT_SYMBOL(rfkill_resume_polling);
 
@@ -886,7 +895,8 @@ static void rfkill_poll(struct work_struct *work)
 	 */
 	rfkill->ops->poll(rfkill, rfkill->data);
 
-	schedule_delayed_work(&rfkill->poll_work,
+	queue_delayed_work(system_power_efficient_wq,
+		&rfkill->poll_work,
 		round_jiffies_relative(POLL_INTERVAL));
 }
 
@@ -950,7 +960,8 @@ int __must_check rfkill_register(struct rfkill *rfkill)
 	INIT_WORK(&rfkill->sync_work, rfkill_sync_work);
 
 	if (rfkill->ops->poll)
-		schedule_delayed_work(&rfkill->poll_work,
+		queue_delayed_work(system_power_efficient_wq,
+			&rfkill->poll_work,
 			round_jiffies_relative(POLL_INTERVAL));
 
 	if (!rfkill->persistent || rfkill_epo_lock_active) {

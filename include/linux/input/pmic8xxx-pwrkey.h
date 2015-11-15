@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2011, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -12,10 +12,6 @@
 
 #ifndef __PMIC8XXX_PWRKEY_H__
 #define __PMIC8XXX_PWRKEY_H__
-
-#ifdef CONFIG_PMIC8XXX_FORCECRASH
-#include <linux/platform_device.h>
-#endif
 
 #define PM8XXX_PWRKEY_DEV_NAME "pm8xxx-pwrkey"
 

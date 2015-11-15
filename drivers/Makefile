@@ -11,7 +11,6 @@ obj-y				+= gpio/
 obj-$(CONFIG_PCI)		+= pci/
 obj-$(CONFIG_PARISC)		+= parisc/
 obj-$(CONFIG_RAPIDIO)		+= rapidio/
-obj-y				+= leds/
 obj-y				+= video/
 obj-y				+= idle/
 obj-$(CONFIG_ACPI)		+= acpi/
@@ -102,6 +101,7 @@ obj-$(CONFIG_CPU_FREQ)		+= cpufreq/
 obj-$(CONFIG_CPU_IDLE)		+= cpuidle/
 obj-y				+= mmc/
 obj-$(CONFIG_MEMSTICK)		+= memstick/
+obj-y				+= leds/
 obj-$(CONFIG_SWITCH)		+= switch/
 obj-$(CONFIG_INFINIBAND)	+= infiniband/
 obj-$(CONFIG_SGI_SN)		+= sn/
@@ -141,4 +141,4 @@ obj-$(CONFIG_PM_DEVFREQ)	+= devfreq/
 #MobiCore
 obj-$(CONFIG_MOBICORE_SUPPORT)  += gud/
 
-obj-$(CONFIG_MSM_QDSS)		+= coresight/
+obj-$(CONFIG_CORESIGHT)		+= coresight/

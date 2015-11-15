@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -28,7 +28,6 @@
 #include <linux/debugfs.h>
 #include <linux/completion.h>
 #include <linux/workqueue.h>
-#include <linux/clk.h>
 #include <asm/mach-types.h>
 #include <asm/uaccess.h>
 #include <linux/mfd/pm8xxx/misc.h>
@@ -39,7 +38,6 @@
 #include <linux/msm_charm.h>
 #include "msm_watchdog.h"
 #include "devices.h"
-#include "clock.h"
 
 #define CHARM_MODEM_TIMEOUT	6000
 #define CHARM_HOLD_TIME		4000
@@ -47,7 +45,6 @@
 
 static void (*power_on_charm)(void);
 static void (*power_down_charm)(void);
-static void (*power_down_charm_direct)(void);
 
 static int charm_debug_on;
 static int charm_status_irq;
@@ -74,14 +71,14 @@ static void charm_disable_irqs(void)
 
 }
 
-static int charm_subsys_shutdown(const struct subsys_data *crashed_subsys)
+static int charm_subsys_shutdown(const struct subsys_desc *crashed_subsys)
 {
 	charm_ready = 0;
 	power_down_charm();
 	return 0;
 }
 
-static int charm_subsys_powerup(const struct subsys_data *crashed_subsys)
+static int charm_subsys_powerup(const struct subsys_desc *crashed_subsys)
 {
 	power_on_charm();
 	boot_type = CHARM_NORMAL_BOOT;
@@ -93,7 +90,7 @@ static int charm_subsys_powerup(const struct subsys_data *crashed_subsys)
 }
 
 static int charm_subsys_ramdumps(int want_dumps,
-				const struct subsys_data *crashed_subsys)
+				const struct subsys_desc *crashed_subsys)
 {
 	charm_ram_dump_status = 0;
 	if (want_dumps) {
@@ -106,7 +103,9 @@ static int charm_subsys_ramdumps(int want_dumps,
 	return charm_ram_dump_status;
 }
 
-static struct subsys_data charm_subsystem = {
+static struct subsys_device *charm_subsys;
+
+static struct subsys_desc charm_subsystem = {
 	.shutdown = charm_subsys_shutdown,
 	.ramdump = charm_subsys_ramdumps,
 	.powerup = charm_subsys_powerup,
@@ -212,7 +211,7 @@ static long charm_modem_ioctl(struct file *filp, unsigned int cmd,
 		break;
 	case POWROFF_CHARM:
 		CHARM_DBG("%s: bootup failed,reset modem directly\n", __func__);
-		power_down_charm_direct();
+		charm_subsys_shutdown();
 		break;
 	default:
 		pr_err("%s: invalid ioctl cmd = %d\n", __func__, _IOC_NR(cmd));
@@ -246,7 +245,7 @@ struct miscdevice charm_modem_misc = {
 static void charm_status_fn(struct work_struct *work)
 {
 	pr_info("Reseting the charm because status changed\n");
-	subsystem_restart("external_modem");
+	subsystem_restart_dev(charm_subsys);
 }
 
 static DECLARE_WORK(charm_status_work, charm_status_fn);
@@ -256,7 +255,7 @@ static void charm_fatal_fn(struct work_struct *work)
 	pr_info("Reseting the charm due to an errfatal\n");
 	if (get_restart_level() == RESET_SOC)
 		pm8xxx_stay_on();
-	subsystem_restart("external_modem");
+	subsystem_restart_dev(charm_subsys);
 }
 
 static DECLARE_WORK(charm_fatal_work, charm_fatal_fn);
@@ -345,16 +344,14 @@ static int __init charm_modem_probe(struct platform_device *pdev)
 	gpio_request(MDM2AP_ERRFATAL, "MDM2AP_ERRFATAL");
 	gpio_request(AP2MDM_WAKEUP, "AP2MDM_WAKEUP");
 
-	gpio_direction_output(AP2MDM_PMIC_RESET_N, 1);
-	gpio_direction_output(AP2MDM_KPDPWR_N, 0);
-
+	gpio_direction_output(AP2MDM_STATUS, 1);
+	gpio_direction_output(AP2MDM_ERRFATAL, 0);
 	gpio_direction_output(AP2MDM_WAKEUP, 0);
 	gpio_direction_input(MDM2AP_STATUS);
 	gpio_direction_input(MDM2AP_ERRFATAL);
 
 	power_on_charm = d->charm_modem_on;
 	power_down_charm = d->charm_modem_off;
-	power_down_charm_direct = d->charm_modem_off_direct;
 
 	charm_queue = create_singlethread_workqueue("charm_queue");
 	if (!charm_queue) {
@@ -368,7 +365,11 @@ static int __init charm_modem_probe(struct platform_device *pdev)
 	atomic_notifier_chain_register(&panic_notifier_list, &charm_panic_blk);
 	charm_debugfs_init();
 
-	ssr_register_subsystem(&charm_subsystem);
+	charm_subsys = subsys_register(&charm_subsystem);
+	if (IS_ERR(charm_subsys)) {
+		ret = PTR_ERR(charm_subsys);
+		goto fatal_err;
+	}
 
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0) {

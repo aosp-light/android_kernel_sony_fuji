@@ -295,6 +295,13 @@ config BATTERY_MSM
 	help
 	  Say Y to enable support for the battery in Qualcomm MSM.
 
+config BATTERY_MSM_FAKE
+	tristate "Fake MSM battery"
+	depends on ARCH_MSM && BATTERY_MSM
+	default n
+	help
+	  Say Y to bypass actual battery queries.
+
 config BATTERY_MSM8X60
 	tristate "MSM8X60 battery"
 	select PMIC8XXX_BATTALARM
@@ -344,13 +351,6 @@ config SMB349_CHARGER
 	  SMB349 be operated as a slave device via the power supply
 	  framework.
 
-config BATTERY_MSM_FAKE
-	tristate "Fake MSM battery"
-	depends on ARCH_MSM && BATTERY_MSM
-	default n
-	help
-	  Say Y to bypass actual battery queries.
-
 config PM8058_FIX_USB
 	tristate "pmic8058 software workaround for usb removal"
 	depends on PMIC8058
@@ -375,27 +375,12 @@ config BATTERY_BQ27520
 	help
 	  Say Y here to enable support for batteries with BQ27520 (I2C) chips.
 
-config BATTERY_BQ27520_SEAL_FW
-	tristate "Seal the frimware of BQ27520"
+config BQ27520_TEST_ENABLE
+	bool "Enable BQ27520 Fuel Gauge Chip Test"
 	depends on BATTERY_BQ27520
-	help
-	  Say Y to seal the firmware of fuel gauge
-
-config CHARGER_BQ24185
-	tristate "TI BQ24185 Switch-Mode One-Cell Li-Ion charger"
-	depends on I2C
 	default n
 	help
-	  Say Y here to enable Support for the TI BQ24185 Battery Charger.
-	  The driver is configured to operate with a single lithium cell.
-
-config CHARGER_BQ24160
-	tristate "TI BQ24160 Dual-Input, Single Cell Switch-Mode Li-Ion charger"
-	depends on I2C
-	default n
-	help
-	  Say Y here to enable Support for the TI BQ24160 Battery Charger.
-	  The driver is configured to operate with a single lithium cell.
+	  Say Y here to enable Test sysfs Interface for BQ27520 Drivers.
 
 config BATTERY_BQ27541
 	tristate "BQ27541 battery driver"
@@ -403,13 +388,6 @@ config BATTERY_BQ27541
 	default n
 	help
 	  Say Y here to enable support for batteries with BQ27541 (I2C) chips.
-
-config BQ27520_TEST_ENABLE
-	bool "Enable BQ27520 Fuel Gauge Chip Test"
-	depends on BATTERY_BQ27520
-	default n
-	help
-	  Say Y here to enable Test sysfs Interface for BQ27520 Drivers.
 
 config PM8921_CHARGER
 	tristate "PM8921 Charger driver"
@@ -437,6 +415,74 @@ config PM8921_BMS
 	help
 	  Say Y here to enable support for pm8921 chip bms subdevice
 
+config CHARGER_SMB347
+	tristate "Summit Microelectronics SMB347 Battery Charger"
+	depends on I2C
+	help
+	  Say Y to include support for Summit Microelectronics SMB347
+	  Battery Charger.
+
+config AB8500_BM
+	bool "AB8500 Battery Management Driver"
+	depends on AB8500_CORE && AB8500_GPADC
+	help
+	  Say Y to include support for AB5500 battery management.
+
+config AB8500_BATTERY_THERM_ON_BATCTRL
+	bool "Thermistor connected on BATCTRL ADC"
+	depends on AB8500_BM
+	help
+	  Say Y to enable battery temperature measurements using
+	  thermistor connected on BATCTRL ADC.
+
+config WIRELESS_CHARGER
+	bool "Wireless Charger Configuration"
+	default n
+	help
+	  wireless charger configuration
+
+config BQ51051B_CHARGER
+	bool "TI BQ51051B Wireless Charging control Driver"
+	depends on WIRELESS_CHARGER
+	help
+	  TI BQ51051B wireless charging control driver
+
+config BATTERY_TEMP_CONTROL
+	default n
+	bool "Battery Temperature Control Configuration"
+	help
+	  Say Y to enable battery temperature control for safty.
+	  It controls charging current depending on battery temperature.
+
+config BATTERY_BQ27520_SEMC
+	tristate "SEMC BQ27520 battery driver"
+	depends on I2C
+	default n
+	help
+	  Say Y here to enable support for batteries with BQ27520 (I2C) chips.
+
+config BATTERY_BQ27520_SEAL_FW
+	tristate "Seal the frimware of BQ27520"
+	depends on BATTERY_BQ27520_SEMC
+	help
+	  Say Y to seal the firmware of fuel gauge
+
+config CHARGER_BQ24185
+	tristate "TI BQ24185 Switch-Mode One-Cell Li-Ion charger"
+	depends on I2C
+	default n
+	help
+	  Say Y here to enable Support for the TI BQ24185 Battery Charger.
+	  The driver is configured to operate with a single lithium cell.
+
+config CHARGER_BQ24160
+	tristate "TI BQ24160 Dual-Input, Single Cell Switch-Mode Li-Ion charger"
+	depends on I2C
+	default n
+	help
+	  Say Y here to enable Support for the TI BQ24160 Battery Charger.
+	  The driver is configured to operate with a single lithium cell.
+
 config BATTERY_CHARGALG
 	bool "Battery charging algorithm"
 	default n
@@ -459,23 +505,4 @@ config BATTERY_SEMC_ARCH
 	  Say Y to enable support for SEMC battery data handling in the
 	  platform.
 
-config CHARGER_SMB347
-	tristate "Summit Microelectronics SMB347 Battery Charger"
-	depends on I2C
-	help
-	  Say Y to include support for Summit Microelectronics SMB347
-	  Battery Charger.
-
-config AB8500_BM
-	bool "AB8500 Battery Management Driver"
-	depends on AB8500_CORE && AB8500_GPADC
-	help
-	  Say Y to include support for AB5500 battery management.
-
-config AB8500_BATTERY_THERM_ON_BATCTRL
-	bool "Thermistor connected on BATCTRL ADC"
-	depends on AB8500_BM
-	help
-	  Say Y to enable battery temperature measurements using
-	  thermistor connected on BATCTRL ADC.
 endif # POWER_SUPPLY

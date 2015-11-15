@@ -713,14 +713,7 @@ ENTRY(__switch_to)
 	ldr	r7, [r7, #TSK_STACK_CANARY]
 #endif
 #ifdef CONFIG_CPU_USE_DOMAINS
-#ifdef CONFIG_EMULATE_DOMAIN_MANAGER_V7
-	stmdb	r13!, {r0-r3, lr}
-	mov	r0, r6
-	bl	emulate_domain_manager_set
-	ldmia	r13!, {r0-r3, lr}
-#else
 	mcr	p15, 0, r6, c3, c0, 0		@ Set domain register
-#endif
 #endif
 	mov	r5, r0
 	add	r4, r2, #TI_CPU_SAVE
@@ -956,9 +949,9 @@ __kuser_helper_end:
 /*
  * Vector stubs.
  *
- * This code is copied to 0xffff0200 so we can use branches in the
- * vectors, rather than ldr's.  Note that this code must not
- * exceed 0x300 bytes.
+ * This code is copied to 0xffff1000 so we can use branches in the
+ * vectors, rather than ldr's.  Note that this code must not exceed
+ * a page size.
  *
  * Common stub entry macro:
  *   Enter in IRQ mode, spsr = SVC/USR CPSR, lr = SVC/USR PC
@@ -966,7 +959,7 @@ __kuser_helper_end:
  * SP points to a minimal amount of processor-private memory, the address
  * of which is copied into r0 for the mode specific abort handler.
  */
-	.macro	vector_stub, name, mode, correction=0
+	.macro	vector_stub, name, mode, fixup, correction=0
 	.align	5
 
 vector_\name:
@@ -995,6 +988,18 @@ vector_\name:
 	and	lr, lr, #0x0f
  THUMB(	adr	r0, 1f			)
  THUMB(	ldr	lr, [r0, lr, lsl #2]	)
+	.if	\fixup
+#ifdef CONFIG_MSM_KRAIT_WFE_FIXUP
+	ldr	r0, .krait_fixup
+	ldr	r0, [r0]
+	cmp	r0, #0
+	beq	10f
+	mrc	p15, 7, r0, c15, c0, 5
+	orr	r0, r0, #0x10000
+	mcr	p15, 7, r0, c15, c0, 5
+10:	isb
+#endif
+	.endif
 	mov	r0, sp
  ARM(	ldr	lr, [pc, lr, lsl #2]	)
 	movs	pc, lr			@ branch to handler in SVC mode
@@ -1005,12 +1010,21 @@ ENDPROC(vector_\name)
 1:
 	.endm
 
-	.globl	__stubs_start
+	.section .stubs, "ax", %progbits
 __stubs_start:
+	@ This must be the first word
+	.word	vector_swi
+
+vector_rst:
+ ARM(	swi	SYS_ERROR0	)
+ THUMB(	svc	#0		)
+ THUMB(	nop			)
+	b	vector_und
+
 /*
  * Interrupt dispatcher
  */
-	vector_stub	irq, IRQ_MODE, 4
+	vector_stub	irq, IRQ_MODE, 1, 4
 
 	.long	__irq_usr			@  0  (USR_26 / USR_32)
 	.long	__irq_invalid			@  1  (FIQ_26 / FIQ_32)
@@ -1033,7 +1047,7 @@ __stubs_start:
  * Data abort dispatcher
  * Enter in ABT mode, spsr = USR CPSR, lr = USR PC
  */
-	vector_stub	dabt, ABT_MODE, 8
+	vector_stub	dabt, ABT_MODE, 0, 8
 
 	.long	__dabt_usr			@  0  (USR_26 / USR_32)
 	.long	__dabt_invalid			@  1  (FIQ_26 / FIQ_32)
@@ -1056,7 +1070,7 @@ __stubs_start:
  * Prefetch abort dispatcher
  * Enter in ABT mode, spsr = USR CPSR, lr = USR PC
  */
-	vector_stub	pabt, ABT_MODE, 4
+	vector_stub	pabt, ABT_MODE, 0, 4
 
 	.long	__pabt_usr			@  0 (USR_26 / USR_32)
 	.long	__pabt_invalid			@  1 (FIQ_26 / FIQ_32)
@@ -1079,7 +1093,7 @@ __stubs_start:
  * Undef instr entry dispatcher
  * Enter in UND mode, spsr = SVC/USR CPSR, lr = SVC/USR PC
  */
-	vector_stub	und, UND_MODE
+	vector_stub	und, UND_MODE, 0
 
 	.long	__und_usr			@  0 (USR_26 / USR_32)
 	.long	__und_invalid			@  1 (FIQ_26 / FIQ_32)
@@ -1101,6 +1115,16 @@ __stubs_start:
 	.align	5
 
 /*=============================================================================
+ * Address exception handler
+ *-----------------------------------------------------------------------------
+ * These aren't too critical.
+ * (they're not supposed to happen, and won't happen in 32-bit data mode).
+ */
+
+vector_addrexcptn:
+	b	vector_addrexcptn
+
+/*=============================================================================
  * Undefined FIQs
  *-----------------------------------------------------------------------------
  * Enter in FIQ mode, spsr = ANY CPSR, lr = ANY PC
@@ -1113,45 +1137,19 @@ __stubs_start:
 vector_fiq:
 	subs	pc, lr, #4
 
-/*=============================================================================
- * Address exception handler
- *-----------------------------------------------------------------------------
- * These aren't too critical.
- * (they're not supposed to happen, and won't happen in 32-bit data mode).
- */
+.krait_fixup:
+	.word	msm_krait_need_wfe_fixup
 
-vector_addrexcptn:
-	b	vector_addrexcptn
-
-/*
- * We group all the following data together to optimise
- * for CPUs with separate I & D caches.
- */
-	.align	5
-
-.LCvswi:
-	.word	vector_swi
-
-	.globl	__stubs_end
-__stubs_end:
-
-	.equ	stubs_offset, __vectors_start + 0x200 - __stubs_start
-
-	.globl	__vectors_start
+	.section .vectors, "ax", %progbits
 __vectors_start:
- ARM(	swi	SYS_ERROR0	)
- THUMB(	svc	#0		)
- THUMB(	nop			)
-	W(b)	vector_und + stubs_offset
-	W(ldr)	pc, .LCvswi + stubs_offset
-	W(b)	vector_pabt + stubs_offset
-	W(b)	vector_dabt + stubs_offset
-	W(b)	vector_addrexcptn + stubs_offset
-	W(b)	vector_irq + stubs_offset
-	W(b)	vector_fiq + stubs_offset
-
-	.globl	__vectors_end
-__vectors_end:
+	W(b)	vector_rst
+	W(b)	vector_und
+	W(ldr)	pc, __vectors_start + 0x1000
+	W(b)	vector_pabt
+	W(b)	vector_dabt
+	W(b)	vector_addrexcptn
+	W(b)	vector_irq
+	W(b)	vector_fiq
 
 	.data
 

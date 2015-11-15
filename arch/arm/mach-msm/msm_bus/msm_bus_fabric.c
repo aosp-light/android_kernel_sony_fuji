@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2013, Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -20,7 +20,6 @@
 #include <linux/clk.h>
 #include <linux/radix-tree.h>
 #include <mach/board.h>
-#include <mach/socinfo.h>
 #include "msm_bus_core.h"
 
 enum {
@@ -138,7 +137,7 @@ static int register_fabric_info(struct platform_device *pdev,
 
 	for (i = 0; i < fabric->pdata->len; i++) {
 		struct msm_bus_inode_info *info;
-		int ctx;
+		int ctx, j;
 
 		info = kzalloc(sizeof(struct msm_bus_inode_info), GFP_KERNEL);
 		if (info == NULL) {
@@ -188,11 +187,17 @@ static int register_fabric_info(struct platform_device *pdev,
 		if (fabric->fabdev.hw_algo.node_init == NULL)
 			continue;
 
+		for (j = 0; j < NUM_CTX; j++)
+			clk_prepare_enable(fabric->info.nodeclk[j].clk);
+
 		fabric->fabdev.hw_algo.node_init(fabric->hw_data, info);
 		if (ret) {
 			MSM_BUS_ERR("Unable to init node info, ret: %d\n", ret);
 			kfree(info);
 		}
+
+		for (j = 0; j < NUM_CTX; j++)
+			clk_disable_unprepare(fabric->info.nodeclk[j].clk);
 	}
 
 	MSM_BUS_DBG("Fabric: %d nmasters: %d nslaves: %d\n"
@@ -336,10 +341,7 @@ void msm_bus_fabric_update_bw(struct msm_bus_fabric_device *fabdev,
 {
 	struct msm_bus_fabric *fabric = to_msm_bus_fabric(fabdev);
 	void *sel_cdata;
-
-	/* Temporarily stub out arbitration settings for msm8974 */
-	if (machine_is_msm8974())
-		return;
+	int i;
 
 	sel_cdata = fabric->cdata[ctx];
 
@@ -353,8 +355,14 @@ void msm_bus_fabric_update_bw(struct msm_bus_fabric_device *fabdev,
 		return;
 	}
 
+	for (i = 0; i < NUM_CTX; i++)
+		clk_prepare_enable(fabric->info.nodeclk[i].clk);
+
 	fabdev->hw_algo.update_bw(hop, info, fabric->pdata, sel_cdata,
 		master_tiers, add_bw);
+	for (i = 0; i < NUM_CTX; i++)
+		clk_disable_unprepare(fabric->info.nodeclk[i].clk);
+
 	fabric->arb_dirty = true;
 }
 
@@ -627,7 +635,7 @@ static int msm_bus_fabric_hw_init(struct msm_bus_fabric_registration *pdata,
 	return ret;
 }
 
-static int msm_bus_fabric_probe(struct platform_device *pdev)
+static int __devinit msm_bus_fabric_probe(struct platform_device *pdev)
 {
 	int ctx, ret = 0;
 	struct msm_bus_fabric *fabric;
@@ -642,7 +650,6 @@ static int msm_bus_fabric_probe(struct platform_device *pdev)
 	INIT_LIST_HEAD(&fabric->gateways);
 	INIT_RADIX_TREE(&fabric->fab_tree, GFP_ATOMIC);
 	fabric->num_nodes = 0;
-	fabric->fabdev.id = pdev->id;
 	fabric->fabdev.visited = false;
 
 	fabric->info.node_info = kzalloc(sizeof(struct msm_bus_node_info),
@@ -652,18 +659,33 @@ static int msm_bus_fabric_probe(struct platform_device *pdev)
 		kfree(fabric);
 		return -ENOMEM;
 	}
-	fabric->info.node_info->priv_id = fabric->fabdev.id;
-	fabric->info.node_info->id = fabric->fabdev.id;
+
 	fabric->info.num_pnodes = -1;
 	fabric->info.link_info.clk[DUAL_CTX] = 0;
 	fabric->info.link_info.bw[DUAL_CTX] = 0;
 	fabric->info.link_info.clk[ACTIVE_CTX] = 0;
 	fabric->info.link_info.bw[ACTIVE_CTX] = 0;
 
-	fabric->fabdev.id = pdev->id;
-	pdata = (struct msm_bus_fabric_registration *)pdev->dev.platform_data;
+	/* If possible, get pdata from device-tree */
+	if (pdev->dev.of_node) {
+		pdata = pdev->dev.platform_data;
+		if (IS_ERR(pdata) || ZERO_OR_NULL_PTR(pdata)) {
+			pr_err("Null platform data\n");
+			kfree(fabric->info.node_info);
+			kfree(fabric);
+			return PTR_ERR(pdata);
+		}
+		fabric->fabdev.id = pdata->id;
+	} else {
+		pdata = (struct msm_bus_fabric_registration *)pdev->
+			dev.platform_data;
+		fabric->fabdev.id = pdev->id;
+	}
+
 	fabric->fabdev.name = pdata->name;
 	fabric->fabdev.algo = &msm_bus_algo;
+	fabric->info.node_info->priv_id = fabric->fabdev.id;
+	fabric->info.node_info->id = fabric->fabdev.id;
 	ret = msm_bus_fabric_hw_init(pdata, &fabric->fabdev.hw_algo);
 	if (ret) {
 		MSM_BUS_ERR("Error initializing hardware for fabric: %d\n",
@@ -759,12 +781,18 @@ static int msm_bus_fabric_remove(struct platform_device *pdev)
 	return ret;
 }
 
+static struct of_device_id fabric_match[] = {
+	{.compatible = "msm_bus_fabric"},
+	{}
+};
+
 static struct platform_driver msm_bus_fabric_driver = {
 	.probe = msm_bus_fabric_probe,
 	.remove = msm_bus_fabric_remove,
 	.driver = {
 		.name = "msm_bus_fabric",
 		.owner = THIS_MODULE,
+		.of_match_table = fabric_match,
 	},
 };
 
@@ -773,4 +801,4 @@ static int __init msm_bus_fabric_init_driver(void)
 	MSM_BUS_ERR("msm_bus_fabric_init_driver\n");
 	return platform_driver_register(&msm_bus_fabric_driver);
 }
-postcore_initcall(msm_bus_fabric_init_driver);
+subsys_initcall(msm_bus_fabric_init_driver);

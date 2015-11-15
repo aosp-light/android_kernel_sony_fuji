@@ -277,8 +277,6 @@ int mdp4_dtv_pipe_commit(int cndx, int wait)
 	spin_lock_irqsave(&vctrl->spin_lock, flags);
 	if (pipe->ov_blt_addr) {
 		if (mdp4_mixer_staged(MDP4_MIXER1)) {
-			if (mdp_rev <= MDP_REV_41)
-		    	mdp4_mixer_blend_cfg(MDP4_MIXER1);
 			mdp4_dtv_blt_ov_update(pipe);
 			pipe->ov_cnt++;
 			INIT_COMPLETION(vctrl->ov_comp);
@@ -356,6 +354,7 @@ void mdp4_dtv_wait4vsync(int cndx)
 {
 	struct vsycn_ctrl *vctrl;
 	struct mdp4_overlay_pipe *pipe;
+	ktime_t timestamp;
 
 	if (cndx >= MAX_CONTROLLER) {
 		pr_err("%s: out or range: cndx=%d\n", __func__, cndx);
@@ -370,7 +369,9 @@ void mdp4_dtv_wait4vsync(int cndx)
 
 	mdp4_dtv_vsync_irq_ctrl(cndx, 1);
 
-	wait_event_interruptible_timeout(vctrl->wait_queue, 1,
+	timestamp = vctrl->vsync_time;
+	wait_event_interruptible_timeout(vctrl->wait_queue,
+			!ktime_equal(timestamp, vctrl->vsync_time),
 			msecs_to_jiffies(VSYNC_PERIOD * 8));
 
 	mdp4_dtv_vsync_irq_ctrl(cndx, 0);
@@ -974,6 +975,9 @@ void mdp4_dmae_done_dtv(void)
 	spin_lock(&vctrl->spin_lock);
 	vsync_irq_disable(INTR_DMA_E_DONE, MDP_DMA_E_TERM);
 
+	if ((mdp_rev <= MDP_REV_41) && !pipe->ov_blt_addr)
+		mdp4_mixer_blend_cfg(MDP4_MIXER1);
+
 	if (vctrl->blt_change) {
 		mdp4_overlayproc_cfg(pipe);
 		mdp4_overlay_dmae_xy(pipe);
@@ -992,9 +996,6 @@ void mdp4_dmae_done_dtv(void)
 		}
 		vctrl->blt_change = 0;
 	}
-
-	if (mdp_rev <= MDP_REV_41)
-		mdp4_mixer_blend_cfg(MDP4_MIXER1);
 
 	complete_all(&vctrl->dmae_comp);
 	mdp4_overlay_dma_commit(MDP4_MIXER1);

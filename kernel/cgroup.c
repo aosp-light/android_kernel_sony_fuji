@@ -289,7 +289,7 @@ static void check_for_release(struct cgroup *cgrp);
 
 /*
  * A queue for waiters to do rmdir() cgroup. A tasks will sleep when
- * cgroup->count == 0 && list_empty(&cgroup->children) && subsys has some
+ * list_empty(&cgroup->children) && subsys has some
  * reference to css->refcnt. In general, this refcnt is expected to goes down
  * to zero, soon.
  *
@@ -3912,6 +3912,10 @@ static int cgroup_clear_css_refs(struct cgroup *cgrp)
 	struct cgroup_subsys *ss;
 	unsigned long flags;
 	bool failed = false;
+
+	if (atomic_read(&cgrp->count) != 0)
+		return false;
+
 	local_irq_save(flags);
 	for_each_subsys(cgrp->root, ss) {
 		struct cgroup_subsys_state *css = cgrp->subsys[ss->subsys_id];
@@ -3954,19 +3958,23 @@ static int cgroup_clear_css_refs(struct cgroup *cgrp)
 	return !failed;
 }
 
-/* checks if all of the css_sets attached to a cgroup have a refcount of 0.
- * Must be called with css_set_lock held */
+/* Checks if all of the css_sets attached to a cgroup have a refcount of 0. */
 static int cgroup_css_sets_empty(struct cgroup *cgrp)
 {
 	struct cg_cgroup_link *link;
+	int retval = 1;
 
+	read_lock(&css_set_lock);
 	list_for_each_entry(link, &cgrp->css_sets, cgrp_link_list) {
 		struct css_set *cg = link->cg;
-		if (atomic_read(&cg->refcount) > 0)
-			return 0;
+		if (atomic_read(&cg->refcount) > 0) {
+			retval = 0;
+			break;
+		}
 	}
+	read_unlock(&css_set_lock);
 
-	return 1;
+	return retval;
 }
 
 static int cgroup_rmdir(struct inode *unused_dir, struct dentry *dentry)
@@ -4545,41 +4553,19 @@ void cgroup_fork(struct task_struct *child)
 }
 
 /**
- * cgroup_fork_callbacks - run fork callbacks
- * @child: the new task
- *
- * Called on a new task very soon before adding it to the
- * tasklist. No need to take any locks since no-one can
- * be operating on this task.
- */
-void cgroup_fork_callbacks(struct task_struct *child)
-{
-	if (need_forkexit_callback) {
-		int i;
-		/*
-		 * forkexit callbacks are only supported for builtin
-		 * subsystems, and the builtin section of the subsys array is
-		 * immutable, so we don't need to lock the subsys array here.
-		 */
-		for (i = 0; i < CGROUP_BUILTIN_SUBSYS_COUNT; i++) {
-			struct cgroup_subsys *ss = subsys[i];
-			if (ss->fork)
-				ss->fork(child);
-		}
-	}
-}
-
-/**
  * cgroup_post_fork - called on a new task after adding it to the task list
  * @child: the task in question
  *
- * Adds the task to the list running through its css_set if necessary.
- * Has to be after the task is visible on the task list in case we race
- * with the first call to cgroup_iter_start() - to guarantee that the
- * new task ends up on its list.
+ * Adds the task to the list running through its css_set if necessary and
+ * call the subsystem fork() callbacks.  Has to be after the task is
+ * visible on the task list in case we race with the first call to
+ * cgroup_iter_start() - to guarantee that the new task ends up on its
+ * list.
  */
 void cgroup_post_fork(struct task_struct *child)
 {
+	int i;
+
 	/*
 	 * use_task_css_set_links is set to 1 before we walk the tasklist
 	 * under the tasklist_lock and we read it here after we added the child
@@ -4608,7 +4594,21 @@ void cgroup_post_fork(struct task_struct *child)
 		}
 		write_unlock(&css_set_lock);
 	}
+
+	/*
+	 * Call ss->fork().  This must happen after @child is linked on
+	 * css_set; otherwise, @child might change state between ->fork()
+	 * and addition to css_set.
+	 */
+	if (need_forkexit_callback) {
+		for (i = 0; i < CGROUP_BUILTIN_SUBSYS_COUNT; i++) {
+			struct cgroup_subsys *ss = subsys[i];
+			if (ss->fork)
+				ss->fork(child);
+		}
+	}
 }
+
 /**
  * cgroup_exit - detach cgroup from exiting task
  * @tsk: pointer to task_struct of exiting process
@@ -4902,7 +4902,7 @@ EXPORT_SYMBOL_GPL(css_depth);
  * @root: the css supporsed to be an ancestor of the child.
  *
  * Returns true if "root" is an ancestor of "child" in its hierarchy. Because
- * this function reads css->id, this use rcu_dereference() and rcu_read_lock().
+ * this function reads css->id, the caller must hold rcu_read_lock().
  * But, considering usual usage, the csses should be valid objects after test.
  * Assuming that the caller will do some action to the child if this returns
  * returns true, the caller must take "child";s reference count.
@@ -4914,18 +4914,18 @@ bool css_is_ancestor(struct cgroup_subsys_state *child,
 {
 	struct css_id *child_id;
 	struct css_id *root_id;
-	bool ret = true;
 
-	rcu_read_lock();
 	child_id  = rcu_dereference(child->id);
+	if (!child_id)
+		return false;
 	root_id = rcu_dereference(root->id);
-	if (!child_id
-	    || !root_id
-	    || (child_id->depth < root_id->depth)
-	    || (child_id->stack[root_id->depth] != root_id->id))
-		ret = false;
-	rcu_read_unlock();
-	return ret;
+	if (!root_id)
+		return false;
+	if (child_id->depth < root_id->depth)
+		return false;
+	if (child_id->stack[root_id->depth] != root_id->id)
+		return false;
+	return true;
 }
 
 void free_css_id(struct cgroup_subsys *ss, struct cgroup_subsys_state *css)

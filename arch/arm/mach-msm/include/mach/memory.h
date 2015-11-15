@@ -1,7 +1,7 @@
 /* arch/arm/mach-msm/include/mach/memory.h
  *
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2009-2012, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2009-2012, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -95,6 +95,10 @@ extern void l2x0_cache_sync(void);
 
 #if defined(CONFIG_ARCH_MSM8X60) || defined(CONFIG_ARCH_MSM8960)
 extern void store_ttbr0(void);
+#ifdef CONFIG_LGE_CRASH_HANDLER
+extern void store_ctrl(void);
+extern void store_dac(void);
+#endif
 #define finish_arch_switch(prev)	do { store_ttbr0(); } while (0)
 #endif
 
@@ -154,4 +158,5 @@ extern char *__compat_exports_end[];
 
 #ifndef CONFIG_ARCH_MSM7X27
 #define CONSISTENT_DMA_SIZE	(SZ_1M * 14)
+
 #endif

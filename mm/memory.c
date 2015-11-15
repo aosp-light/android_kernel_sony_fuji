@@ -49,6 +49,7 @@
 #include <linux/rmap.h>
 #include <linux/export.h>
 #include <linux/delayacct.h>
+#include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/writeback.h>
 #include <linux/memcontrol.h>
@@ -57,6 +58,7 @@
 #include <linux/swapops.h>
 #include <linux/elf.h>
 #include <linux/gfp.h>
+#include <linux/bug.h>
 
 #include <asm/io.h>
 #include <asm/pgalloc.h>
@@ -704,6 +706,9 @@ static void print_bad_pte(struct vm_area_struct *vma, unsigned long addr,
 	if (vma->vm_file && vma->vm_file->f_op)
 		print_symbol(KERN_ALERT "vma->vm_file->f_op->mmap: %s\n",
 				(unsigned long)vma->vm_file->f_op->mmap);
+
+	BUG_ON(PANIC_CORRUPTION);
+
 	dump_stack();
 	add_taint(TAINT_BAD_PAGE);
 }
@@ -1520,8 +1525,24 @@ split_fallthrough:
 	ptep = pte_offset_map_lock(mm, pmd, address, &ptl);
 
 	pte = *ptep;
-	if (!pte_present(pte))
-		goto no_page;
+	if (!pte_present(pte)) {
+		swp_entry_t entry;
+		/*
+		 * KSM's break_ksm() relies upon recognizing a ksm page
+		 * even while it is being migrated, so for that case we
+		 * need migration_entry_wait().
+		 */
+		if (likely(!(flags & FOLL_MIGRATION)))
+			goto no_page;
+		if (pte_none(pte) || pte_file(pte))
+			goto no_page;
+		entry = pte_to_swp_entry(pte);
+		if (!is_migration_entry(entry))
+			goto no_page;
+		pte_unmap_unlock(ptep, ptl);
+		migration_entry_wait(mm, pmd, address);
+		goto split_fallthrough;
+	}
 	if ((flags & FOLL_WRITE) && !pte_write(pte))
 		goto unlock;
 
@@ -2324,53 +2345,6 @@ int remap_pfn_range(struct vm_area_struct *vma, unsigned long addr,
 }
 EXPORT_SYMBOL(remap_pfn_range);
 
-/**
- * vm_iomap_memory - remap memory to userspace
- * @vma: user vma to map to
- * @start: start of area
- * @len: size of area
- *
- * This is a simplified io_remap_pfn_range() for common driver use. The
- * driver just needs to give us the physical memory range to be mapped,
- * we'll figure out the rest from the vma information.
- *
- * NOTE! Some drivers might want to tweak vma->vm_page_prot first to get
- * whatever write-combining details or similar.
- */
-int vm_iomap_memory(struct vm_area_struct *vma, phys_addr_t start, unsigned long len)
-{
-	unsigned long vm_len, pfn, pages;
-
-	/* Check that the physical memory area passed in looks valid */
-	if (start + len < start)
-		return -EINVAL;
-	/*
-	 * You *really* shouldn't map things that aren't page-aligned,
-	 * but we've historically allowed it because IO memory might
-	 * just have smaller alignment.
-	 */
-	len += start & ~PAGE_MASK;
-	pfn = start >> PAGE_SHIFT;
-	pages = (len + ~PAGE_MASK) >> PAGE_SHIFT;
-	if (pfn + pages < pfn)
-		return -EINVAL;
-
-	/* We start the mapping 'vm_pgoff' pages into the area */
-	if (vma->vm_pgoff > pages)
-		return -EINVAL;
-	pfn += vma->vm_pgoff;
-	pages -= vma->vm_pgoff;
-
-	/* Can we fit all of the mapping? */
-	vm_len = vma->vm_end - vma->vm_start;
-	if (vm_len >> PAGE_SHIFT > pages)
-		return -EINVAL;
-
-	/* Ok, let it rip */
-	return io_remap_pfn_range(vma, vma->vm_start, pfn, vm_len, vma->vm_page_prot);
-}
-EXPORT_SYMBOL(vm_iomap_memory);
-
 static int apply_to_pte_range(struct mm_struct *mm, pmd_t *pmd,
 				     unsigned long addr, unsigned long end,
 				     pte_fn_t fn, void *data)
@@ -2832,14 +2806,13 @@ static void unmap_mapping_range_vma(struct vm_area_struct *vma,
 	zap_page_range_single(vma, start_addr, end_addr - start_addr, details);
 }
 
-static inline void unmap_mapping_range_tree(struct prio_tree_root *root,
+static inline void unmap_mapping_range_tree(struct rb_root *root,
 					    struct zap_details *details)
 {
 	struct vm_area_struct *vma;
-	struct prio_tree_iter iter;
 	pgoff_t vba, vea, zba, zea;
 
-	vma_prio_tree_foreach(vma, &iter, root,
+	vma_interval_tree_foreach(vma, root,
 			details->first_index, details->last_index) {
 
 		vba = vma->vm_pgoff;
@@ -2870,7 +2843,7 @@ static inline void unmap_mapping_range_list(struct list_head *head,
 	 * across *all* the pages in each nonlinear VMA, not just the pages
 	 * whose virtual address lies outside the file truncation point.
 	 */
-	list_for_each_entry(vma, head, shared.vm_set.list) {
+	list_for_each_entry(vma, head, shared.nonlinear) {
 		details->nonlinear_vma = vma;
 		unmap_mapping_range_vma(vma, vma->vm_start, vma->vm_end, details);
 	}
@@ -2914,7 +2887,7 @@ void unmap_mapping_range(struct address_space *mapping,
 
 
 	mutex_lock(&mapping->i_mmap_mutex);
-	if (unlikely(!prio_tree_empty(&mapping->i_mmap)))
+	if (unlikely(!RB_EMPTY_ROOT(&mapping->i_mmap)))
 		unmap_mapping_range_tree(&mapping->i_mmap, &details);
 	if (unlikely(!list_empty(&mapping->i_mmap_nonlinear)))
 		unmap_mapping_range_list(&mapping->i_mmap_nonlinear, &details);
@@ -2946,6 +2919,16 @@ static int do_swap_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	entry = pte_to_swp_entry(orig_pte);
 	if (unlikely(non_swap_entry(entry))) {
 		if (is_migration_entry(entry)) {
+#ifdef CONFIG_CMA
+			/*
+			 * FIXME: mszyprow: cruel, brute-force method for
+			 * letting cma/migration to finish it's job without
+			 * stealing the lock migration_entry_wait() and creating
+			 * a live-lock on the faulted page
+			 * (page->_count == 2 migration failure issue)
+			 */
+			mdelay(10);
+#endif
 			migration_entry_wait(mm, pmd, address);
 		} else if (is_hwpoison_entry(entry)) {
 			ret = VM_FAULT_HWPOISON;
@@ -2958,7 +2941,6 @@ static int do_swap_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	delayacct_set_flag(DELAYACCT_PF_SWAPIN);
 	page = lookup_swap_cache(entry);
 	if (!page) {
-		grab_swap_token(mm); /* Contend for token _before_ read-in */
 		page = swapin_readahead(entry,
 					GFP_HIGHUSER_MOVABLE, vma, address);
 		if (!page) {
@@ -2988,6 +2970,7 @@ static int do_swap_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	}
 
 	locked = lock_page_or_retry(page, mm, flags);
+
 	delayacct_clear_flag(DELAYACCT_PF_SWAPIN);
 	if (!locked) {
 		ret |= VM_FAULT_RETRY;
@@ -3003,17 +2986,16 @@ static int do_swap_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	if (unlikely(!PageSwapCache(page) || page_private(page) != entry.val))
 		goto out_page;
 
-	if (ksm_might_need_to_copy(page, vma, address)) {
-		swapcache = page;
-		page = ksm_does_need_to_copy(page, vma, address);
-
-		if (unlikely(!page)) {
-			ret = VM_FAULT_OOM;
-			page = swapcache;
-			swapcache = NULL;
-			goto out_page;
-		}
+	swapcache = page;
+	page = ksm_might_need_to_copy(page, vma, address);
+	if (unlikely(!page)) {
+		ret = VM_FAULT_OOM;
+		page = swapcache;
+		swapcache = NULL;
+		goto out_page;
 	}
+	if (page == swapcache)
+		swapcache = NULL;
 
 	if (mem_cgroup_try_charge_swapin(mm, page, GFP_KERNEL, &ptr)) {
 		ret = VM_FAULT_OOM;
@@ -3057,7 +3039,10 @@ static int do_swap_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	}
 	flush_icache_page(vma, page);
 	set_pte_at(mm, address, page_table, pte);
-	do_page_add_anon_rmap(page, vma, address, exclusive);
+	if (swapcache) /* ksm created a completely new copy */
+		page_add_new_anon_rmap(page, vma, address);
+	else
+		do_page_add_anon_rmap(page, vma, address, exclusive);
 	/* It's better to call commit-charge after rmap is established */
 	mem_cgroup_commit_charge_swapin(page, ptr);
 

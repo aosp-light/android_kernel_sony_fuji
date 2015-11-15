@@ -2,8 +2,7 @@
  * drivers/serial/msm_serial.c - driver for msm7k serial device and console
  *
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
- * Copyright (c) 2011 Sony Ericsson Mobile Communications AB.
+ * Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -49,6 +48,13 @@
 #include <asm/mach-types.h>
 #include "msm_serial_hs_hwreg.h"
 
+#ifdef CONFIG_MACH_APQ8064_MAKO
+/* HACK: earjack noise due to HW flaw. disable console to avoid this issue */
+extern int mako_console_stopped(void);
+#else
+static inline int mako_console_stopped(void) { return 0; }
+#endif
+
 struct msm_hsl_port {
 	struct uart_port	uart;
 	char			name[16];
@@ -63,6 +69,7 @@ struct msm_hsl_port {
 	unsigned int            old_snap_state;
 	unsigned int		ver_id;
 	int			tx_timeout;
+	short			cons_flags;
 };
 
 #define UARTDM_VERSION_11_13	0
@@ -91,7 +98,6 @@ static const unsigned int regmap[][UARTDM_LAST] = {
 		[UARTDM_DMRX] = UARTDM_DMRX_ADDR,
 		[UARTDM_NCF_TX] = UARTDM_NCF_TX_ADDR,
 		[UARTDM_DMEN] = UARTDM_DMEN_ADDR,
-		[UARTDM_IRDA] = UARTDM_IRDA_ADDR,
 		[UARTDM_TXFS] = UARTDM_TXFS_ADDR,
 		[UARTDM_RXFS] = UARTDM_RXFS_ADDR,
 	},
@@ -113,9 +119,8 @@ static const unsigned int regmap[][UARTDM_LAST] = {
 		[UARTDM_DMRX] = 0x34,
 		[UARTDM_NCF_TX] = 0x40,
 		[UARTDM_DMEN] = 0x3c,
-		[UARTDM_IRDA] = 0xffff, /* unsupport */
 		[UARTDM_TXFS] = 0x4c,
-		[UARTDM_RXFS] = 0x50,		
+		[UARTDM_RXFS] = 0x50,
 	},
 };
 
@@ -134,7 +139,6 @@ static inline int get_console_state(struct uart_port *port) { return -ENODEV; };
 
 static struct dentry *debug_base;
 static inline void wait_for_xmitr(struct uart_port *port);
-static int get_console_state(struct uart_port *port);
 static inline void msm_hsl_write(struct uart_port *port,
 				 unsigned int val, unsigned int off)
 {
@@ -195,13 +199,7 @@ static int msm_hsl_loopback_enable_set(void *data, u64 val)
 	unsigned long flags;
 	int ret = 0;
 
-	ret = clk_set_rate(msm_hsl_port->clk, 7372800);
-	if (!ret)
-		clk_en(port, 1);
-	else {
-		pr_err("%s(): Error: Setting the clock rate\n", __func__);
-		return -EINVAL;
-	}
+	clk_en(port, 1);
 
 	vid = msm_hsl_port->ver_id;
 	if (val) {
@@ -228,14 +226,7 @@ static int msm_hsl_loopback_enable_get(void *data, u64 *val)
 	unsigned long flags;
 	int ret = 0;
 
-	ret = clk_set_rate(msm_hsl_port->clk, 7372800);
-	if (!ret)
-		clk_en(port, 1);
-	else {
-		pr_err("%s(): Error setting clk rate\n", __func__);
-		return -EINVAL;
-	}
-
+	clk_en(port, 1);
 	spin_lock_irqsave(&port->lock, flags);
 	ret = msm_hsl_read(port, regmap[msm_hsl_port->ver_id][UARTDM_MR2]);
 	spin_unlock_irqrestore(&port->lock, flags);
@@ -766,11 +757,6 @@ static int msm_hsl_startup(struct uart_port *port)
 		printk(KERN_ERR "%s: failed to request_irq\n", __func__);
 		return ret;
 	}
-	if (pdata && pdata->type == PORT_IRDA &&
-		regmap[vid][UARTDM_IRDA] != 0xffff)
-		msm_hsl_write(port, (UARTDM_IRDA_INVERT_RX_BMSK |
-					UARTDM_IRDA_EN_BMSK),
-					regmap[vid][UARTDM_IRDA]);
 	return 0;
 }
 
@@ -784,10 +770,6 @@ static void msm_hsl_shutdown(struct uart_port *port)
 	msm_hsl_port->imr = 0;
 	/* disable interrupts */
 	msm_hsl_write(port, 0, regmap[msm_hsl_port->ver_id][UARTDM_IMR]);
-	if (pdata && pdata->type == PORT_IRDA &&
-		regmap[msm_hsl_port->ver_id][UARTDM_IRDA] != 0xffff)
-		msm_hsl_write(port, 0,
-				regmap[msm_hsl_port->ver_id][UARTDM_IRDA]);
 
 	free_irq(port->irq, port);
 
@@ -1002,23 +984,12 @@ static int msm_hsl_verify_port(struct uart_port *port,
 static void msm_hsl_power(struct uart_port *port, unsigned int state,
 			  unsigned int oldstate)
 {
-	int ret;
-	struct msm_hsl_port *msm_hsl_port = UART_TO_MSM(port);
-
 	switch (state) {
 	case 0:
-		ret = clk_set_rate(msm_hsl_port->clk, 7372800);
-		if (ret)
-			pr_err("%s(): Error setting UART clock rate\n",
-								__func__);
 		clk_en(port, 1);
 		break;
 	case 3:
 		clk_en(port, 0);
-		ret = clk_set_rate(msm_hsl_port->clk, 0);
-		if (ret)
-			pr_err("%s(): Error setting UART clock rate to zero.\n",
-								__func__);
 		break;
 	default:
 		pr_err("%s(): msm_serial_hsl: Unknown PM state %d\n",
@@ -1072,15 +1043,6 @@ static struct msm_hsl_port msm_hsl_uart_ports[] = {
 			.flags = UPF_BOOT_AUTOCONF,
 			.fifosize = 64,
 			.line = 2,
-		},
-	},
-	{
-		.uart = {
-			.iotype = UPIO_MEM,
-			.ops = &msm_hsl_uart_pops,
-			.flags = UPF_BOOT_AUTOCONF,
-			.fifosize = 64,
-			.line = 3,
 		},
 	},
 };
@@ -1181,6 +1143,11 @@ static void msm_hsl_console_write(struct console *co, const char *s,
 	int locked;
 
 	BUG_ON(co->index < 0 || co->index >= UART_NR);
+
+#ifdef CONFIG_MACH_APQ8064_MAKO
+	if (mako_console_stopped())
+		return;
+#endif
 
 	port = get_port_from_line(co->index);
 	msm_hsl_port = UART_TO_MSM(port);
@@ -1406,13 +1373,12 @@ static int __devinit msm_serial_hsl_probe(struct platform_device *pdev)
 	if (!gsbi_resource)
 		gsbi_resource = platform_get_resource(pdev, IORESOURCE_MEM, 1);
 	msm_hsl_port->clk = clk_get(&pdev->dev, "core_clk");
-	if (gsbi_resource) {
+	msm_hsl_port->pclk = clk_get(&pdev->dev, "iface_clk");
+
+	if (gsbi_resource)
 		msm_hsl_port->is_uartdm = 1;
-		msm_hsl_port->pclk = clk_get(&pdev->dev, "iface_clk");
-	} else {
+	else
 		msm_hsl_port->is_uartdm = 0;
-		msm_hsl_port->pclk = NULL;
-	}
 
 	if (unlikely(IS_ERR(msm_hsl_port->clk))) {
 		printk(KERN_ERR "%s: Error getting clk\n", __func__);
@@ -1421,6 +1387,12 @@ static int __devinit msm_serial_hsl_probe(struct platform_device *pdev)
 	if (unlikely(IS_ERR(msm_hsl_port->pclk))) {
 		printk(KERN_ERR "%s: Error getting pclk\n", __func__);
 		return PTR_ERR(msm_hsl_port->pclk);
+	}
+
+	ret = clk_set_rate(msm_hsl_port->clk, 7372800);
+	if (ret) {
+		printk(KERN_ERR "%s: Error setting UART clock rate\n", __func__);
+		return ret;
 	}
 
 	uart_resource = platform_get_resource_byname(pdev,
@@ -1493,8 +1465,11 @@ static int msm_serial_hsl_suspend(struct device *dev)
 
 	if (port) {
 
-		if (is_console(port))
+		if (is_console(port)) {
+			struct msm_hsl_port *msm_hsl_port = UART_TO_MSM(port);
+			msm_hsl_port->cons_flags = port->cons->flags;
 			msm_hsl_deinit_clock(port);
+		}
 
 		uart_suspend_port(&msm_hsl_uart_driver, port);
 		if (device_may_wakeup(dev))
@@ -1516,8 +1491,13 @@ static int msm_serial_hsl_resume(struct device *dev)
 		if (device_may_wakeup(dev))
 			disable_irq_wake(port->irq);
 
-		if (is_console(port))
+		if (is_console(port)) {
+			struct msm_hsl_port *msm_hsl_port = UART_TO_MSM(port);
+			if (!(msm_hsl_port->cons_flags & CON_ENABLED) ||
+			    mako_console_stopped())
+				console_stop(port->cons);
 			msm_hsl_init_clock(port);
+		}
 	}
 
 	return 0;

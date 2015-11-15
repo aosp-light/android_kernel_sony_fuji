@@ -1,6 +1,6 @@
 /* ehci-msm.c - HSUSB Host Controller Driver Implementation
  *
- * Copyright (c) 2008-2012, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2008-2012, The Linux Foundation. All rights reserved.
  *
  * Partly derived from ehci-fsl.c and ehci-hcd.c
  * Copyright (c) 2000-2004 by David Brownell
@@ -116,6 +116,8 @@ static int ehci_msm_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "Unable to create HCD\n");
 		return  -ENOMEM;
 	}
+
+	hcd_to_bus(hcd)->skip_resume = true;
 
 	hcd->irq = platform_get_irq(pdev, 0);
 	if (hcd->irq < 0) {

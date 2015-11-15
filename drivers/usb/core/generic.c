@@ -2,7 +2,6 @@
  * drivers/usb/generic.c - generic driver for USB devices (not interfaces)
  *
  * (C) Copyright 2005 Greg Kroah-Hartman <gregkh@suse.de>
- * (C) Copyright 2012 Sony Ericsson Mobile Communications AB.
  *
  * based on drivers/usb/usb.c which had the following copyrights:
  *	(C) Copyright Linus Torvalds 1999

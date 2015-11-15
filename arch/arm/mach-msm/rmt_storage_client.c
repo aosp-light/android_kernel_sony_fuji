@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2009-2011, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -30,7 +30,6 @@
 #include <linux/delay.h>
 #include <asm/uaccess.h>
 #include <asm/pgtable.h>
-#include <asm/mach-types.h>
 #include <mach/msm_rpcrouter.h>
 #ifdef CONFIG_MSM_SDIO_SMEM
 #include <mach/sdio_smem.h>
@@ -178,8 +177,6 @@ static struct dentry *stats_dentry;
 #define RAMFS_SSD_STORAGE_ID		0x00535344
 #define RAMFS_SHARED_SSD_RAM_BASE	0x42E00000
 #define RAMFS_SHARED_SSD_RAM_SIZE	0x2000
-
-#define MAX_NUM_SYNC_STATE_CHECK	100
 
 static struct rmt_storage_client *rmt_storage_get_client(uint32_t handle)
 {
@@ -1071,9 +1068,6 @@ static int rmt_storage_force_sync(struct msm_rpc_client *client)
 {
 	struct rmt_storage_sync_recv_arg args;
 	int rc;
-
-	if (!client)
-		return -EINVAL;
 	rc = msm_rpc_client_req2(client,
 			RMT_STORAGE_FORCE_SYNC_PROC, NULL, NULL,
 			rmt_storage_receive_sync_arg, &args, -1);
@@ -1112,9 +1106,6 @@ static int rmt_storage_get_sync_status(struct msm_rpc_client *client)
 	struct rmt_storage_sync_sts_arg send_args;
 	struct rmt_storage_srv *srv;
 	int rc;
-
-	if (!client)
-		return -EINVAL;
 
 	srv = rmt_storage_get_srv(client->prog);
 	if (!srv)
@@ -1591,7 +1582,6 @@ static void rmt_storage_client_shutdown(struct platform_device *pdev)
 
 	dev = container_of(pdev, struct rpcsvr_platform_device, base);
 	srv = rmt_storage_get_srv(dev->prog);
-
 	rmt_storage_set_client_status(srv, 0);
 }
 

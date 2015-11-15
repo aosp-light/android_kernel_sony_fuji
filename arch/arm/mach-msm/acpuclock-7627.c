@@ -2,7 +2,7 @@
  * MSM architecture clock driver
  *
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2007-2012, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2007-2012, The Linux Foundation. All rights reserved.
  * Author: San Mehat <san@android.com>
  *
  * This software is licensed under the terms of the GNU General Public
@@ -32,13 +32,13 @@
 
 #include <mach/board.h>
 #include <mach/msm_iomap.h>
+#include <mach/clk-provider.h>
 #include <mach/socinfo.h>
 #include <asm/mach-types.h>
 #include <asm/cpu.h>
 
 #include "smd_private.h"
 #include "acpuclock.h"
-#include "clock.h"
 
 #define A11S_CLK_CNTL_ADDR (MSM_CSR_BASE + 0x100)
 #define A11S_CLK_SEL_ADDR (MSM_CSR_BASE + 0x104)
@@ -719,12 +719,11 @@ static int acpuclk_7627_set_rate(int cpu, unsigned long rate,
 				 */
 				clk_enable(pll_clk[backup_s->pll].clk);
 				acpuclk_set_div(backup_s);
-				update_jiffies(cpu, backup_s->lpj);
 			}
 			/* Make sure PLL4 is off before reprogramming */
 			if ((plls_enabled & (1 << tgt_s->pll))) {
 				clk_disable(pll_clk[tgt_s->pll].clk);
-				plls_enabled &= ~(1 << tgt_s->pll);
+				plls_enabled &= (0 << tgt_s->pll);
 			}
 			acpuclk_config_pll4(tgt_s->pll_rate);
 			pll_clk[tgt_s->pll].clk->rate = tgt_s->a11clk_khz*1000;
@@ -737,12 +736,10 @@ static int acpuclk_7627_set_rate(int cpu, unsigned long rate,
 				 */
 				clk_enable(pll_clk[backup_s->pll].clk);
 				acpuclk_set_div(backup_s);
-				update_jiffies(cpu, backup_s->lpj);
 			}
 		}
 
-		if ((tgt_s->pll != ACPU_PLL_TCXO) &&
-				!(plls_enabled & (1 << tgt_s->pll))) {
+		if (!(plls_enabled & (1 << tgt_s->pll))) {
 			rc = clk_enable(pll_clk[tgt_s->pll].clk);
 			if (rc < 0) {
 				pr_err("PLL%d enable failed (%d)\n",
@@ -830,8 +827,7 @@ done:
 		goto out;
 
 	/* Change the AXI bus frequency if we can. */
-	if (reason != SETRATE_PC &&
-		strt_s->axiclk_khz != tgt_s->axiclk_khz) {
+	if (strt_s->axiclk_khz != tgt_s->axiclk_khz) {
 		res = clk_set_rate(drv_state.ebi1_clk,
 				tgt_s->axiclk_khz * 1000);
 		if (res < 0)

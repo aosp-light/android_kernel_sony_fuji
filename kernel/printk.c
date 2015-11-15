@@ -41,7 +41,7 @@
 #include <linux/cpu.h>
 #include <linux/notifier.h>
 #include <linux/rculist.h>
-#include <mach/msm_rtb.h>
+
 #include <asm/uaccess.h>
 
 #include <mach/msm_rtb.h>
@@ -686,8 +686,19 @@ static void call_console_drivers(unsigned start, unsigned end)
 	start_print = start;
 	while (cur_index != end) {
 		if (msg_level < 0 && ((end - cur_index) > 2)) {
+			/*
+			 * prepare buf_prefix, as a contiguous array,
+			 * to be processed by log_prefix function
+			 */
+			char buf_prefix[SYSLOG_PRI_MAX_LENGTH+1];
+			unsigned i;
+			for (i = 0; i < ((end - cur_index)) && (i < SYSLOG_PRI_MAX_LENGTH); i++) {
+				buf_prefix[i] = LOG_BUF(cur_index + i);
+			}
+			buf_prefix[i] = '\0'; /* force '\0' as last string character */
+
 			/* strip log prefix */
-			cur_index += log_prefix(&LOG_BUF(cur_index), &msg_level, NULL);
+			cur_index += log_prefix((const char *)&buf_prefix, &msg_level, NULL);
 			start_print = cur_index;
 		}
 		while (cur_index != end) {
@@ -939,6 +950,9 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 
 
 	p = printk_buf;
+#ifdef CONFIG_LGE_CRASH_HANDLER
+	store_crash_log(p);
+#endif
 
 	/* Read log level and handle special printk prefix */
 	plen = log_prefix(p, &current_log_level, &special);
@@ -1174,6 +1188,12 @@ module_param_named(console_suspend, console_suspend_enabled,
 MODULE_PARM_DESC(console_suspend, "suspend console during suspend"
 	" and hibernate operations");
 
+/* check current suspend/resume status of the console */
+int is_console_suspended(void)
+{
+	return console_suspended;
+}
+
 /**
  * suspend_console - suspend the console subsystem
  *
@@ -1224,13 +1244,13 @@ static int __cpuinit console_cpu_notify(struct notifier_block *self,
 	unsigned long action, void *hcpu)
 {
 	switch (action) {
-	case CPU_ONLINE:
 	case CPU_DEAD:
 	case CPU_DOWN_FAILED:
 	case CPU_UP_CANCELED:
 		console_lock();
 		console_unlock();
 		break;
+	case CPU_ONLINE:
 	case CPU_DYING:
 		/* invoked with preemption disabled, so defer */
 		if (!console_trylock())
@@ -1383,7 +1403,8 @@ again:
 	 * flush, no worries.
 	 */
 	raw_spin_lock(&logbuf_lock);
-	retry = con_start != log_end;
+	if (con_start != log_end)
+		retry = 1;
 	raw_spin_unlock_irqrestore(&logbuf_lock, flags);
 
 	if (retry && console_trylock())

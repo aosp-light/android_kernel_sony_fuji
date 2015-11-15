@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2011, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -85,6 +85,17 @@ int msm_bus_axi_porthalt(int master_port);
 int msm_bus_axi_portunhalt(int master_port);
 
 #else
+static inline struct msm_bus_scale_pdata
+*msm_bus_cl_get_pdata(struct platform_device *pdev)
+{
+	return NULL;
+}
+
+static inline void
+msm_bus_cl_clear_pdata(struct msm_bus_scale_pdata *pdata)
+{
+}
+
 static inline uint32_t
 msm_bus_scale_register_client(struct msm_bus_scale_pdata *pdata)
 {
@@ -99,17 +110,6 @@ msm_bus_scale_client_update_request(uint32_t cl, unsigned int index)
 
 static inline void
 msm_bus_scale_unregister_client(uint32_t cl)
-{
-}
-
-static inline struct msm_bus_scale_pdata
-*msm_bus_cl_get_pdata(struct platform_device *pdev)
-{
-	return NULL;
-}
-
-static inline void
-msm_bus_cl_clear_pdata(struct msm_bus_scale_pdata *pdata)
 {
 }
 

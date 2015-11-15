@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2009-2012, The Linux Foundation. All rights reserved.
  * Copyright (c) 2010-2012 Sony Ericsson Mobile Communications AB.
  * Copyright (C) 2012 Sony Mobile Communications AB.
  *
@@ -37,6 +37,11 @@
 #ifdef CONFIG_USB_HOST_EXTRA_NOTIFICATION
 #include <linux/usb/host_ext_event.h>
 #endif
+ 
+#ifdef CONFIG_FORCE_FAST_CHARGE
+#include <linux/fastchg.h>
+#define USB_FASTCHG_LOAD 1000 /* uA */
+#endif
 
 #define MSM_USB_BASE	(dev->regs)
 #define USB_LINK_RESET_TIMEOUT	(msecs_to_jiffies(10))
@@ -54,7 +59,7 @@
 
 #define WAIT_PM_COMPLETE_TIMEOUT	500
 
-static void otg_reset(struct usb_phy *xceiv, int phy_reset);
+static void otg_reset(struct usb_phy *phy, int phy_reset);
 static void msm_otg_set_vbus_state(int online);
 #ifdef CONFIG_USB_EHCI_MSM_72K
 static void msm_otg_set_id_state(int id);
@@ -303,6 +308,9 @@ static void set_aca_id_inputs(struct msm_otg *dev)
 #define get_aca_bmaxpower(dev)		(dev->b_max_power)
 #define set_aca_bmaxpower(dev, power)	(dev->b_max_power = power)
 #else
+static void set_aca_id_inputs(struct msm_otg *dev)
+{
+}
 #define get_aca_bmaxpower(dev)		0
 #define set_aca_bmaxpower(dev, power)
 #endif
@@ -607,6 +615,22 @@ static int msm_otg_set_power(struct usb_phy *xceiv, unsigned mA)
 	else if (pdata->chg_drawable_ida && test_bit(ID_A, &dev->inputs))
 		charge = pdata->chg_drawable_ida;
 
+#ifdef CONFIG_FORCE_FAST_CHARGE
+	if (force_fast_charge == 1) {
+		/* don't override charging current if available current is greater */
+		if (charge >= USB_FASTCHG_LOAD) {
+			pr_info("Available current already greater than USB fastcharging current.\n");
+			pr_info("Override of USB charging current cancelled.\n");
+		} else {
+			charge = USB_FASTCHG_LOAD;
+			pr_info("USB fast charging is ON.\n");
+		}
+		
+	} else {
+		pr_info("USB fast charging is OFF.\n");
+	}
+#endif
+
 	pr_info("Charging with %dmA current\n", charge);
 	/* Call vbus_draw only if the charger is of known type and also
 	 * ignore request to stop charging as a result of suspend interrupt
@@ -797,7 +821,6 @@ static int msm_otg_suspend(struct msm_otg *dev)
 		host_bus_suspend ||
 		(dev->phy.otg->host && !dev->pmic_id_notif_supp) ||
 		(dev->phy.otg->gadget && !dev->pmic_vbus_notif_supp)) {
-		pr_info("%s: Turn on phy comparators\n", __func__);
 		ulpi_write(dev, 0x01, 0x30);
 	}
 
@@ -1013,7 +1036,7 @@ phy_resumed:
 	 * IDGND might have cleared and ID_A might not have updated
 	 * yet. Hence update the ACA states explicitly.
 	 */
-	set_bit(ACA_ID_INPUTS, &dev->inputs);
+	set_aca_id_inputs(dev);
 
 	/* If resume signalling finishes before lpm exit, PCD is not set in
 	 * USBSTS register. Drive resume signal to the downstream device now
@@ -1043,7 +1066,7 @@ static int msm_otg_set_suspend(struct usb_phy *xceiv, int suspend)
 	state = dev->phy.state;
 	spin_unlock_irqrestore(&dev->lock, flags);
 
-	pr_debug("suspend request=%d in state: %s\n", suspend,
+	pr_debug("suspend request in state: %s\n",
 			state_string(state));
 
 	if (suspend) {
@@ -1267,10 +1290,8 @@ static void msm_otg_set_id_state(int id)
 		return;
 
 	if (id) {
-		pr_debug("Id set\n");
 		set_bit(ID, &dev->inputs);
 	} else {
-		pr_debug("Id clear\n");
 		clear_bit(ID, &dev->inputs);
 		set_bit(A_BUS_REQ, &dev->inputs);
 	}
@@ -1444,7 +1465,7 @@ static irqreturn_t msm_otg_irq(int irq, void *data)
 #ifdef CONFIG_USB_MSM_ACA
 		/* With ACA, ID can change bcoz of BSVIS as well, so update */
 		if ((otgsc & OTGSC_IDIS) || (otgsc & OTGSC_BSVIS))
-			set_bit(ACA_ID_INPUTS, &dev->inputs);
+			set_aca_id_inputs(dev);
 #endif
 		wake_lock(&dev->wlock);
 		queue_work(dev->wq, &dev->sm_work);
@@ -1846,12 +1867,6 @@ static void msm_otg_sm_work(struct work_struct *w)
 	state = dev->phy.state;
 	spin_unlock_irqrestore(&dev->lock, flags);
 
-	pr_debug("state: %s: ID_%s\n", state_string(state),
-		test_bit(ID_A, &dev->inputs) ? "A" :
-		test_bit(ID_B, &dev->inputs) ? "B" :
-		test_bit(ID_C, &dev->inputs) ? "C" :
-		test_bit(ID, &dev->inputs) ? "FLOAT" : "GND");
-
 	switch (state) {
 	case OTG_STATE_UNDEFINED:
 
@@ -1964,7 +1979,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 				pr_info("Cradle is connected. Skip to suspend USB PHY.\n");
 			} else {
 				atomic_set(&dev->skip_lpm, 0);
-				pr_info("entering into lpm\n");
+				pr_debug("entering into lpm\n");
 				msm_otg_put_suspend(dev);
 
 				if (dev->pdata->ldo_set_voltage)
@@ -2299,7 +2314,6 @@ static void msm_otg_sm_work(struct work_struct *w)
 			pr_debug("id\n");
 			atomic_set(&dev->chg_type, USB_CHG_TYPE__INVALID);
 			msm_otg_set_power(&dev->phy, 0);
-
 			dev->pdata->vbus_power(USB_PHY_INTEGRATED, 1);
 		}
 		break;
@@ -2669,7 +2683,7 @@ static void msm_otg_id_func(unsigned long _dev)
 				jiffies + msecs_to_jiffies(OTG_ID_POLL_MS));
 		goto out;
 	} else {
-		set_bit(ACA_ID_INPUTS, &dev->inputs);
+		set_aca_id_inputs(dev);
 	}
 	wake_lock(&dev->wlock);
 	queue_work(dev->wq, &dev->sm_work);

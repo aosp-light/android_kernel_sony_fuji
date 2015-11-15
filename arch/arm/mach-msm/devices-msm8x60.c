@@ -1,5 +1,4 @@
-/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
- * Copyright (C) 2012 Sony Mobile Communications AB.
+/* Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -105,6 +104,11 @@
 #define MSM_UART9DM_PHYS    (MSM_GSBI9_PHYS + 0x40000)
 #define INT_UART9DM_IRQ     GSBI9_UARTDM_IRQ
 
+struct platform_device msm_gpio_device = {
+	.name = "msmgpio",
+	.id = -1,
+};
+
 static void charm_ap2mdm_kpdpwr_on(void)
 {
 	gpio_direction_output(AP2MDM_PMIC_RESET_N, 0);
@@ -139,13 +143,6 @@ static void charm_ap2mdm_kpdpwr_off(void)
 	}
 }
 
-static void charm_ap2mdm_kpdpwr_off_direct(void)
-{
-	gpio_direction_output(AP2MDM_PMIC_RESET_N, 1);
-	msleep(4000);
-	gpio_direction_output(AP2MDM_PMIC_RESET_N, 0);
-}
-
 static struct resource charm_resources[] = {
 	/* MDM2AP_ERRFATAL */
 	{
@@ -164,7 +161,6 @@ static struct resource charm_resources[] = {
 static struct charm_platform_data mdm_platform_data = {
 	.charm_modem_on		= charm_ap2mdm_kpdpwr_on,
 	.charm_modem_off	= charm_ap2mdm_kpdpwr_off,
-	.charm_modem_off_direct	= charm_ap2mdm_kpdpwr_off_direct,
 };
 
 struct platform_device msm_charm_modem = {
@@ -677,6 +673,24 @@ static struct msm_bus_vectors grp3d_max_vectors[] = {
 	},
 };
 
+static struct msm_bus_vectors grp3d_oc_vectors[] = {
+	{
+		.src = MSM_BUS_MASTER_GRAPHICS_3D,
+		.dst = MSM_BUS_SLAVE_EBI_CH0,
+		.ab = 0,
+		.ib = KGSL_CONVERT_TO_MBPS(2976),
+	},
+};
+
+static struct msm_bus_vectors grp3d_oc_max_vectors[] = {
+	{
+		.src = MSM_BUS_MASTER_GRAPHICS_3D,
+		.dst = MSM_BUS_SLAVE_EBI_CH0,
+		.ab = 0,
+		.ib = KGSL_CONVERT_TO_MBPS(3448),
+	},
+};
+
 static struct msm_bus_paths grp3d_bus_scale_usecases[] = {
 	{
 		ARRAY_SIZE(grp3d_init_vectors),
@@ -697,6 +711,14 @@ static struct msm_bus_paths grp3d_bus_scale_usecases[] = {
 	{
 		ARRAY_SIZE(grp3d_max_vectors),
 		grp3d_max_vectors,
+	},
+	{
+		ARRAY_SIZE(grp3d_oc_vectors),
+		grp3d_oc_vectors,
+	},
+	{
+		ARRAY_SIZE(grp3d_oc_max_vectors),
+		grp3d_oc_max_vectors,
 	},
 };
 
@@ -720,7 +742,7 @@ static struct msm_bus_vectors grp2d0_nominal_vectors[] = {
 		.src = MSM_BUS_MASTER_GRAPHICS_2D_CORE0,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
-		.ib = KGSL_CONVERT_TO_MBPS(1000),
+		.ib = KGSL_CONVERT_TO_MBPS(990),
 	},
 };
 
@@ -729,7 +751,25 @@ static struct msm_bus_vectors grp2d0_max_vectors[] = {
 		.src = MSM_BUS_MASTER_GRAPHICS_2D_CORE0,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
-		.ib = KGSL_CONVERT_TO_MBPS(2048),
+		.ib = KGSL_CONVERT_TO_MBPS(1300),
+	},
+};
+
+static struct msm_bus_vectors grp2d0_oc_vectors[] = {
+	{
+		.src = MSM_BUS_MASTER_GRAPHICS_2D_CORE0,
+		.dst = MSM_BUS_SLAVE_EBI_CH0,
+		.ab = 0,
+		.ib = KGSL_CONVERT_TO_MBPS(1632),
+	},
+};
+
+static struct msm_bus_vectors grp2d0_oc_max_vectors[] = {
+	{
+		.src = MSM_BUS_MASTER_GRAPHICS_2D_CORE0,
+		.dst = MSM_BUS_SLAVE_EBI_CH0,
+		.ab = 0,
+		.ib = KGSL_CONVERT_TO_MBPS(2008),
 	},
 };
 
@@ -745,6 +785,14 @@ static struct msm_bus_paths grp2d0_bus_scale_usecases[] = {
 	{
 		ARRAY_SIZE(grp2d0_max_vectors),
 		grp2d0_max_vectors,
+	},
+	{
+		ARRAY_SIZE(grp2d0_oc_vectors),
+		grp2d0_oc_vectors,
+	},
+	{
+		ARRAY_SIZE(grp2d0_oc_max_vectors),
+		grp2d0_oc_max_vectors,
 	},
 };
 
@@ -768,7 +816,7 @@ static struct msm_bus_vectors grp2d1_nominal_vectors[] = {
 		.src = MSM_BUS_MASTER_GRAPHICS_2D_CORE1,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
-		.ib = KGSL_CONVERT_TO_MBPS(1000),
+		.ib = KGSL_CONVERT_TO_MBPS(990),
 	},
 };
 
@@ -777,7 +825,25 @@ static struct msm_bus_vectors grp2d1_max_vectors[] = {
 		.src = MSM_BUS_MASTER_GRAPHICS_2D_CORE1,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
-		.ib = KGSL_CONVERT_TO_MBPS(2048),
+		.ib = KGSL_CONVERT_TO_MBPS(1300),
+	},
+};
+
+static struct msm_bus_vectors grp2d1_oc_vectors[] = {
+	{
+		.src = MSM_BUS_MASTER_GRAPHICS_2D_CORE1,
+		.dst = MSM_BUS_SLAVE_EBI_CH0,
+		.ab = 0,
+		.ib = KGSL_CONVERT_TO_MBPS(1632),
+	},
+};
+
+static struct msm_bus_vectors grp2d1_oc_max_vectors[] = {
+	{
+		.src = MSM_BUS_MASTER_GRAPHICS_2D_CORE1,
+		.dst = MSM_BUS_SLAVE_EBI_CH0,
+		.ab = 0,
+		.ib = KGSL_CONVERT_TO_MBPS(2008),
 	},
 };
 
@@ -793,6 +859,14 @@ static struct msm_bus_paths grp2d1_bus_scale_usecases[] = {
 	{
 		ARRAY_SIZE(grp2d1_max_vectors),
 		grp2d1_max_vectors,
+	},
+	{
+		ARRAY_SIZE(grp2d1_oc_vectors),
+		grp2d1_oc_vectors,
+	},
+	{
+		ARRAY_SIZE(grp2d1_oc_max_vectors),
+		grp2d1_oc_max_vectors,
 	},
 };
 
@@ -836,44 +910,46 @@ static struct resource kgsl_3d0_resources[] = {
 static struct kgsl_device_platform_data kgsl_3d0_pdata = {
 	.pwrlevel = {
 		{
+			.gpu_freq = 320000000,
+			.bus_freq = 6,
+			.io_fraction = 0,
+		},
+		{
 			.gpu_freq = 300000000,
-			.bus_freq = 4,
-			.io_fraction = 15,
+			.bus_freq = 5,
+			.io_fraction = 0,
 		},
 		{
 			.gpu_freq = 266667000,
+			.bus_freq = 4,
+			.io_fraction = 0,
+		},
+		{
+			.gpu_freq = 228571000,
 			.bus_freq = 3,
 			.io_fraction = 33,
 		},
 		{
-			.gpu_freq = 228571000,
-			.bus_freq = 2,
-			.io_fraction = 50,
-		},
-		{
 			.gpu_freq = 200000000,
 			.bus_freq = 2,
-			.io_fraction = 65,
+			.io_fraction = 100,
 		},
 		{
 			.gpu_freq = 177778000,
 			.bus_freq = 1,
-			.io_fraction = 85,
-		},
-		{
-			.gpu_freq = 145455000,
-			.bus_freq = 1,
 			.io_fraction = 100,
 		},
 		{
-			.gpu_freq = 128000000,
+			.gpu_freq = 27000000,
 			.bus_freq = 0,
 		},
 	},
-	.init_level = 0,
+	.init_level = 2,
+	.max_level = 2,
 	.num_levels = 7,
 	.set_grp_async = NULL,
-	.idle_timeout = HZ/5,
+	.idle_timeout = HZ/10,
+	.strtstp_sleepwake = true,
 	.clk_map = KGSL_CLK_CORE | KGSL_CLK_IFACE | KGSL_CLK_MEM_IFACE,
 #ifdef CONFIG_MSM_BUS_SCALING
 	.bus_scale_table = &grp3d_bus_scale_pdata,
@@ -908,6 +984,16 @@ static struct resource kgsl_2d0_resources[] = {
 static struct kgsl_device_platform_data kgsl_2d0_pdata = {
 	.pwrlevel = {
 		{
+			.gpu_freq = 266667000,
+			.bus_freq = 4,
+			.io_fraction = 0,
+		},
+		{
+			.gpu_freq = 228571000,
+			.bus_freq = 3,
+			.io_fraction = 33,
+		},
+		{
 			.gpu_freq = 200000000,
 			.bus_freq = 2,
 		},
@@ -920,10 +1006,11 @@ static struct kgsl_device_platform_data kgsl_2d0_pdata = {
 			.bus_freq = 0,
 		},
 	},
-	.init_level = 0,
-	.num_levels = 3,
+	.init_level = 2,
+	.max_level = 2,
+	.num_levels = 5,
 	.set_grp_async = NULL,
-	.idle_timeout = HZ/5,
+	.idle_timeout = HZ/10,
 	.clk_map = KGSL_CLK_CORE | KGSL_CLK_IFACE,
 #ifdef CONFIG_MSM_BUS_SCALING
 	.bus_scale_table = &grp2d0_bus_scale_pdata,
@@ -958,6 +1045,16 @@ static struct resource kgsl_2d1_resources[] = {
 static struct kgsl_device_platform_data kgsl_2d1_pdata = {
 	.pwrlevel = {
 		{
+			.gpu_freq = 266667000,
+			.bus_freq = 4,
+			.io_fraction = 0,
+		},
+		{
+			.gpu_freq = 228571000,
+			.bus_freq = 3,
+			.io_fraction = 33,
+		},
+		{
 			.gpu_freq = 200000000,
 			.bus_freq = 2,
 		},
@@ -970,10 +1067,11 @@ static struct kgsl_device_platform_data kgsl_2d1_pdata = {
 			.bus_freq = 0,
 		},
 	},
-	.init_level = 0,
-	.num_levels = 3,
+	.init_level = 2,
+	.max_level = 2,
+	.num_levels = 5,
 	.set_grp_async = NULL,
-	.idle_timeout = HZ/5,
+	.idle_timeout = HZ/10,
 	.clk_map = KGSL_CLK_CORE | KGSL_CLK_IFACE,
 #ifdef CONFIG_MSM_BUS_SCALING
 	.bus_scale_table = &grp2d1_bus_scale_pdata,
@@ -1247,43 +1345,45 @@ struct platform_device msm_gsbi10_qup_spi_device = {
 
 static struct resource resources_sdc1[] = {
 	{
+		.name	= "core_mem",
 		.start	= MSM_SDC1_BASE,
 		.end	= MSM_SDC1_DML_BASE - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
+		.name	= "core_irq",
 		.start	= SDC1_IRQ_0,
 		.end	= SDC1_IRQ_0,
 		.flags	= IORESOURCE_IRQ,
 	},
 #ifdef CONFIG_MMC_MSM_SPS_SUPPORT
 	{
-		.name   = "sdcc_dml_addr",
+		.name   = "dml_mem",
 		.start	= MSM_SDC1_DML_BASE,
 		.end	= MSM_SDC1_BAM_BASE - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
-		.name   = "sdcc_bam_addr",
+		.name   = "bam_mem",
 		.start	= MSM_SDC1_BAM_BASE,
 		.end	= MSM_SDC1_BAM_BASE + (2 * SZ_4K) - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
-		.name   = "sdcc_bam_irq",
+		.name   = "bam_irq",
 		.start	= SDC1_BAM_IRQ,
 		.end	= SDC1_BAM_IRQ,
 		.flags	= IORESOURCE_IRQ,
 	},
 #else
 	{
-		.name	= "sdcc_dma_chnl",
+		.name	= "dma_chnl",
 		.start	= DMOV_SDC1_CHAN,
 		.end	= DMOV_SDC1_CHAN,
 		.flags	= IORESOURCE_DMA,
 	},
 	{
-		.name	= "sdcc_dma_crci",
+		.name	= "dma_crci",
 		.start	= DMOV_SDC1_CRCI,
 		.end	= DMOV_SDC1_CRCI,
 		.flags	= IORESOURCE_DMA,
@@ -1293,43 +1393,45 @@ static struct resource resources_sdc1[] = {
 
 static struct resource resources_sdc2[] = {
 	{
+		.name	= "core_mem",
 		.start	= MSM_SDC2_BASE,
 		.end	= MSM_SDC2_DML_BASE - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
+		.name	= "core_irq",
 		.start	= SDC2_IRQ_0,
 		.end	= SDC2_IRQ_0,
 		.flags	= IORESOURCE_IRQ,
 	},
 #ifdef CONFIG_MMC_MSM_SPS_SUPPORT
 	{
-		.name   = "sdcc_dml_addr",
+		.name   = "dml_mem",
 		.start	= MSM_SDC2_DML_BASE,
 		.end	= MSM_SDC2_BAM_BASE - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
-		.name   = "sdcc_bam_addr",
+		.name   = "bam_mem",
 		.start	= MSM_SDC2_BAM_BASE,
 		.end	= MSM_SDC2_BAM_BASE + (2 * SZ_4K) - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
-		.name   = "sdcc_bam_irq",
+		.name   = "bam_irq",
 		.start	= SDC2_BAM_IRQ,
 		.end	= SDC2_BAM_IRQ,
 		.flags	= IORESOURCE_IRQ,
 	},
 #else
 	{
-		.name	= "sdcc_dma_chnl",
+		.name	= "dma_chnl",
 		.start	= DMOV_SDC2_CHAN,
 		.end	= DMOV_SDC2_CHAN,
 		.flags	= IORESOURCE_DMA,
 	},
 	{
-		.name	= "sdcc_dma_crci",
+		.name	= "dma_crci",
 		.start	= DMOV_SDC2_CRCI,
 		.end	= DMOV_SDC2_CRCI,
 		.flags	= IORESOURCE_DMA,
@@ -1339,43 +1441,45 @@ static struct resource resources_sdc2[] = {
 
 static struct resource resources_sdc3[] = {
 	{
+		.name	= "core_mem",
 		.start	= MSM_SDC3_BASE,
 		.end	= MSM_SDC3_DML_BASE - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
+		.name	= "core_irq",
 		.start	= SDC3_IRQ_0,
 		.end	= SDC3_IRQ_0,
 		.flags	= IORESOURCE_IRQ,
 	},
 #ifdef CONFIG_MMC_MSM_SPS_SUPPORT
 	{
-		.name   = "sdcc_dml_addr",
+		.name   = "dml_mem",
 		.start	= MSM_SDC3_DML_BASE,
 		.end	= MSM_SDC3_BAM_BASE - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
-		.name   = "sdcc_bam_addr",
+		.name   = "bam_mem",
 		.start	= MSM_SDC3_BAM_BASE,
 		.end	= MSM_SDC3_BAM_BASE + (2 * SZ_4K) - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
-		.name   = "sdcc_bam_irq",
+		.name   = "bam_irq",
 		.start	= SDC3_BAM_IRQ,
 		.end	= SDC3_BAM_IRQ,
 		.flags	= IORESOURCE_IRQ,
 	},
 #else
 	{
-		.name	= "sdcc_dma_chnl",
+		.name	= "dma_chnl",
 		.start	= DMOV_SDC3_CHAN,
 		.end	= DMOV_SDC3_CHAN,
 		.flags	= IORESOURCE_DMA,
 	},
 	{
-		.name	= "sdcc_dma_crci",
+		.name	= "dma_crci",
 		.start	= DMOV_SDC3_CRCI,
 		.end	= DMOV_SDC3_CRCI,
 		.flags	= IORESOURCE_DMA,
@@ -1385,43 +1489,45 @@ static struct resource resources_sdc3[] = {
 
 static struct resource resources_sdc4[] = {
 	{
+		.name	= "core_mem",
 		.start	= MSM_SDC4_BASE,
 		.end	= MSM_SDC4_DML_BASE - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
+		.name	= "core_irq",
 		.start	= SDC4_IRQ_0,
 		.end	= SDC4_IRQ_0,
 		.flags	= IORESOURCE_IRQ,
 	},
 #ifdef CONFIG_MMC_MSM_SPS_SUPPORT
 	{
-		.name   = "sdcc_dml_addr",
+		.name   = "dml_mem",
 		.start	= MSM_SDC4_DML_BASE,
 		.end	= MSM_SDC4_BAM_BASE - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
-		.name   = "sdcc_bam_addr",
+		.name   = "bam_mem",
 		.start	= MSM_SDC4_BAM_BASE,
 		.end	= MSM_SDC4_BAM_BASE + (2 * SZ_4K) - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
-		.name   = "sdcc_bam_irq",
+		.name   = "bam_irq",
 		.start	= SDC4_BAM_IRQ,
 		.end	= SDC4_BAM_IRQ,
 		.flags	= IORESOURCE_IRQ,
 	},
 #else
 	{
-		.name	= "sdcc_dma_chnl",
+		.name	= "dma_chnl",
 		.start	= DMOV_SDC4_CHAN,
 		.end	= DMOV_SDC4_CHAN,
 		.flags	= IORESOURCE_DMA,
 	},
 	{
-		.name	= "sdcc_dma_crci",
+		.name	= "dma_crci",
 		.start	= DMOV_SDC4_CRCI,
 		.end	= DMOV_SDC4_CRCI,
 		.flags	= IORESOURCE_DMA,
@@ -1431,43 +1537,45 @@ static struct resource resources_sdc4[] = {
 
 static struct resource resources_sdc5[] = {
 	{
+		.name	= "core_mem",
 		.start	= MSM_SDC5_BASE,
 		.end	= MSM_SDC5_DML_BASE - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
+		.name	= "core_irq",
 		.start	= SDC5_IRQ_0,
 		.end	= SDC5_IRQ_0,
 		.flags	= IORESOURCE_IRQ,
 	},
 #ifdef CONFIG_MMC_MSM_SPS_SUPPORT
 	{
-		.name   = "sdcc_dml_addr",
+		.name   = "dml_mem",
 		.start	= MSM_SDC5_DML_BASE,
 		.end	= MSM_SDC5_BAM_BASE - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
-		.name   = "sdcc_bam_addr",
+		.name   = "bam_mem",
 		.start	= MSM_SDC5_BAM_BASE,
 		.end	= MSM_SDC5_BAM_BASE + (2 * SZ_4K) - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
-		.name   = "sdcc_bam_irq",
+		.name   = "bam_irq",
 		.start	= SDC5_BAM_IRQ,
 		.end	= SDC5_BAM_IRQ,
 		.flags	= IORESOURCE_IRQ,
 	},
 #else
 	{
-		.name	= "sdcc_dma_chnl",
+		.name	= "dma_chnl",
 		.start	= DMOV_SDC5_CHAN,
 		.end	= DMOV_SDC5_CHAN,
 		.flags	= IORESOURCE_DMA,
 	},
 	{
-		.name	= "sdcc_dma_crci",
+		.name	= "dma_crci",
 		.start	= DMOV_SDC5_CRCI,
 		.end	= DMOV_SDC5_CRCI,
 		.flags	= IORESOURCE_DMA,
@@ -1994,37 +2102,45 @@ int msm_add_host(unsigned int host, struct msm_usb_host_platform_data *plat)
 }
 #endif
 
-#if defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE)
 #define MSM_TSIF0_PHYS       (0x18200000)
 #define MSM_TSIF1_PHYS       (0x18201000)
 #define MSM_TSIF_SIZE        (0x200)
 #define TCSR_ADM_0_A_CRCI_MUX_SEL 0x0070
 
 #define TSIF_0_CLK       GPIO_CFG(93, 1, GPIO_CFG_INPUT, \
-	GPIO_CFG_NO_PULL, GPIO_CFG_2MA)
+	GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA)
 #define TSIF_0_EN        GPIO_CFG(94, 1, GPIO_CFG_INPUT, \
-	GPIO_CFG_NO_PULL, GPIO_CFG_2MA)
+	GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA)
 #define TSIF_0_DATA      GPIO_CFG(95, 1, GPIO_CFG_INPUT, \
-	GPIO_CFG_NO_PULL, GPIO_CFG_2MA)
-
+	GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA)
+#define TSIF_0_SYNC      GPIO_CFG(96, 1, GPIO_CFG_INPUT, \
+	GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA)
 #define TSIF_1_CLK       GPIO_CFG(97, 1, GPIO_CFG_INPUT, \
-	GPIO_CFG_NO_PULL, GPIO_CFG_2MA)
+	GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA)
 #define TSIF_1_EN        GPIO_CFG(98, 1, GPIO_CFG_INPUT, \
-	GPIO_CFG_NO_PULL, GPIO_CFG_2MA)
+	GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA)
 #define TSIF_1_DATA      GPIO_CFG(99, 1, GPIO_CFG_INPUT, \
-	GPIO_CFG_NO_PULL, GPIO_CFG_2MA)
+	GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA)
+#define TSIF_1_SYNC      GPIO_CFG(100, 1, GPIO_CFG_INPUT, \
+	GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA)
 
 static const struct msm_gpio tsif0_gpios[] = {
 	{ .gpio_cfg = TSIF_0_CLK,  .label =  "tsif_clk", },
 	{ .gpio_cfg = TSIF_0_EN,   .label =  "tsif_en", },
 	{ .gpio_cfg = TSIF_0_DATA, .label =  "tsif_data", },
+	{ .gpio_cfg = TSIF_0_SYNC, .label =  "tsif_sync", },
 };
 
 static const struct msm_gpio tsif1_gpios[] = {
 	{ .gpio_cfg = TSIF_1_CLK,  .label =  "tsif_clk", },
 	{ .gpio_cfg = TSIF_1_EN,   .label =  "tsif_en", },
 	{ .gpio_cfg = TSIF_1_DATA, .label =  "tsif_data", },
+	{ .gpio_cfg = TSIF_1_SYNC, .label =  "tsif_sync", },
 };
+
+static void tsif_release(struct device *dev)
+{
+}
 
 static void tsif_init1(struct msm_tsif_platform_data *data)
 {
@@ -2036,7 +2152,7 @@ static void tsif_init1(struct msm_tsif_platform_data *data)
 	secure_writel(val, MSM_TCSR_BASE + TCSR_ADM_0_A_CRCI_MUX_SEL);
 }
 
-static struct msm_tsif_platform_data tsif1_platform_data = {
+struct msm_tsif_platform_data tsif1_platform_data = {
 	.num_gpios = ARRAY_SIZE(tsif1_gpios),
 	.gpios = tsif1_gpios,
 	.tsif_pclk = "iface_clk",
@@ -2044,7 +2160,7 @@ static struct msm_tsif_platform_data tsif1_platform_data = {
 	.init = tsif_init1
 };
 
-static struct resource tsif1_resources[] = {
+struct resource tsif1_resources[] = {
 	[0] = {
 		.flags = IORESOURCE_IRQ,
 		.start = TSIF2_IRQ,
@@ -2072,15 +2188,14 @@ static void tsif_init0(struct msm_tsif_platform_data *data)
 	secure_writel(val, MSM_TCSR_BASE + TCSR_ADM_0_A_CRCI_MUX_SEL);
 }
 
-static struct msm_tsif_platform_data tsif0_platform_data = {
+struct msm_tsif_platform_data tsif0_platform_data = {
 	.num_gpios = ARRAY_SIZE(tsif0_gpios),
 	.gpios = tsif0_gpios,
 	.tsif_pclk = "iface_clk",
 	.tsif_ref_clk = "ref_clk",
 	.init = tsif_init0
 };
-
-static struct resource tsif0_resources[] = {
+struct resource tsif0_resources[] = {
 	[0] = {
 		.flags = IORESOURCE_IRQ,
 		.start = TSIF1_IRQ,
@@ -2105,6 +2220,7 @@ struct platform_device msm_device_tsif[2] = {
 		.num_resources = ARRAY_SIZE(tsif0_resources),
 		.resource      = tsif0_resources,
 		.dev = {
+			.release       = tsif_release,
 			.platform_data = &tsif0_platform_data
 		},
 	},
@@ -2114,11 +2230,11 @@ struct platform_device msm_device_tsif[2] = {
 		.num_resources = ARRAY_SIZE(tsif1_resources),
 		.resource      = tsif1_resources,
 		.dev = {
+			.release       = tsif_release,
 			.platform_data = &tsif1_platform_data
 		},
 	}
 };
-#endif
 
 struct platform_device msm_device_smd = {
 	.name           = "msm_smd",
@@ -2129,6 +2245,15 @@ static struct msm_watchdog_pdata msm_watchdog_pdata = {
 	.pet_time = 10000,
 	.bark_time = 11000,
 	.has_secure = true,
+	.base = MSM_TMR0_BASE + WDT0_OFFSET,
+};
+
+static struct resource msm_watchdog_resources[] = {
+	{
+		.start	= WDT0_ACCSCSSNBARK_INT,
+		.end	= WDT0_ACCSCSSNBARK_INT,
+		.flags	= IORESOURCE_IRQ,
+	},
 };
 
 struct platform_device msm8660_device_watchdog = {
@@ -2137,6 +2262,8 @@ struct platform_device msm8660_device_watchdog = {
 	.dev = {
 		.platform_data = &msm_watchdog_pdata,
 	},
+	.num_resources	= ARRAY_SIZE(msm_watchdog_resources),
+	.resource	= msm_watchdog_resources,
 };
 
 static struct resource msm_dmov_resource_adm0[] = {
@@ -2853,8 +2980,6 @@ struct platform_device *msm8660_footswitch[] __initdata = {
 	FS_8X60(FS_VFE,    "vdd",	"msm_vfe.0",	&vfe_fs_data),
 #if defined(CONFIG_SEMC_VPE)
 	FS_8X60(FS_VPE,    "vdd",	"semc_vpe.0",	&vpe_fs_data),
-#elif defined(CONFIG_SEMC_VPE1)
-	FS_8X60(FS_VPE,    "vdd",	"semc_vpe1.0",	&vpe_fs_data),
 #else
 	FS_8X60(FS_VPE,    "vdd",	"msm_vpe.0",	&vpe_fs_data),
 #endif

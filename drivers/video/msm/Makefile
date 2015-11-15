@@ -3,6 +3,7 @@ obj-y += mdss/
 else
 obj-y := msm_fb.o
 
+obj-$(CONFIG_FB_MSM_LOGO) += logo.o
 obj-$(CONFIG_FB_BACKLIGHT) += msm_fb_bl.o
 
 ifeq ($(CONFIG_FB_MSM_MDP_HW),y)
@@ -184,11 +185,10 @@ obj-$(CONFIG_FB_MSM_LCDC_ST15_WXGA) += lcdc_st15.o
 obj-$(CONFIG_FB_MSM_LVDS_CHIMEI_WXGA) += lvds_chimei_wxga.o
 obj-$(CONFIG_FB_MSM_LVDS_FRC_FHD) += lvds_frc_fhd.o
 obj-$(CONFIG_FB_MSM_HDMI_MSM_PANEL) += hdmi_msm.o
-obj-$(CONFIG_FB_MSM_MHL_SII8334) += mhl_sii8334.o
 obj-$(CONFIG_FB_MSM_EXT_INTERFACE_COMMON) += external_common.o
 obj-$(CONFIG_FB_MSM_LCDC_TRULY_HVGA_IPS3P2335) += lcdc_truly_ips3p2335.o
 
-obj-$(CONFIG_FB_MSM_LOGO) += logo.o
+obj-$(CONFIG_FB_MSM_SONY_LOGO) += logo_sony.o
 
 obj-$(CONFIG_FB_MSM_TVOUT) += tvout_msm.o
 

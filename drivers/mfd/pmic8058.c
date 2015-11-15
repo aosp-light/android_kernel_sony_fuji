@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2009-2011, The Linux Foundation. All rights reserved.
  * Copyright (C) 2012 Sony Ericsson Mobile Communications AB
  *
  * This program is free software; you can redistribute it and/or modify
@@ -28,7 +28,9 @@
 #ifdef CONFIG_PMIC8058_MIC_BIAS
 #include <mach/pm8058-mic_bias.h>
 #endif
+#ifdef CONFIG_SIMPLE_REMOTE_PLATFORM
 #include <mach/simple_remote_msm8x60_pf.h>
+#endif
 
 #define REG_MPP_BASE			0x50
 #define REG_IRQ_BASE			0x1BB
@@ -422,6 +424,7 @@ static struct mfd_cell mic_bias_cell __devinitdata = {
 };
 #endif
 
+#ifdef CONFIG_SIMPLE_REMOTE_PLATFORM
 static const struct resource resources_simple_remote[] __devinitconst = {
 	SINGLE_IRQ_RESOURCE(NULL, PM8058_SW_1_IRQ),
 };
@@ -432,6 +435,7 @@ static struct mfd_cell simple_remote_cell __devinitdata = {
 	.num_resources = ARRAY_SIZE(resources_simple_remote),
 	.resources = resources_simple_remote,
 };
+#endif
 
 static int __devinit
 pm8058_add_subdevices(const struct pm8058_platform_data *pdata,
@@ -706,6 +710,12 @@ pm8058_add_subdevices(const struct pm8058_platform_data *pdata,
 		}
 	}
 
+	rc = mfd_add_devices(pmic->dev, 0, &debugfs_cell, 1, NULL, irq_base);
+	if (rc) {
+		pr_err("Failed to add debugfs subdevice ret=%d\n", rc);
+		goto bail;
+	}
+
 #ifdef CONFIG_FUJI_PMIC_KEYPAD
 	if (pdata->keypad_pmic_pdata) {
 		keypad_pmic_cell.platform_data = pdata->keypad_pmic_pdata;
@@ -734,12 +744,7 @@ pm8058_add_subdevices(const struct pm8058_platform_data *pdata,
 	}
 #endif
 
-	rc = mfd_add_devices(pmic->dev, 0, &debugfs_cell, 1, NULL, irq_base);
-	if (rc) {
-		pr_err("Failed to add debugfs subdevice ret=%d\n", rc);
-		goto bail;
-	}
-
+#ifdef CONFIG_SIMPLE_REMOTE_PLATFORM
 	if (pdata->simple_remote_pdata) {
 		simple_remote_cell.platform_data = pdata->simple_remote_pdata;
 		simple_remote_cell.pdata_size =
@@ -752,6 +757,7 @@ pm8058_add_subdevices(const struct pm8058_platform_data *pdata,
 			goto bail;
 		}
 	}
+#endif
 
 	return rc;
 bail:

@@ -19,7 +19,6 @@
 #include <linux/module.h>
 #include <linux/file.h>
 #include <linux/fs.h>
-#include <linux/falloc.h>
 #include <linux/miscdevice.h>
 #include <linux/security.h>
 #include <linux/mm.h>
@@ -225,21 +224,29 @@ static ssize_t ashmem_read(struct file *file, char __user *buf,
 
 	/* If size is not set, or set to 0, always return EOF. */
 	if (asma->size == 0)
-		goto out;
+		goto out_unlock;
 
 	if (!asma->file) {
 		ret = -EBADF;
-		goto out;
+		goto out_unlock;
 	}
 
+	mutex_unlock(&ashmem_mutex);
+
+	/*
+	 * asma and asma->file are used outside the lock here.  We assume
+	 * once asma->file is set it will never be changed, and will not
+	 * be destroyed until all references to the file are dropped and
+	 * ashmem_release is called.
+	 */
 	ret = asma->file->f_op->read(asma->file, buf, len, pos);
-	if (ret < 0)
-		goto out;
+	if (ret >= 0) {
+		/** Update backing file pos, since f_ops->read() doesn't */
+		asma->file->f_pos = *pos;
+	}
+	return ret;
 
-	/** Update backing file pos, since f_ops->read() doesn't */
-	asma->file->f_pos = *pos;
-
-out:
+out_unlock:
 	mutex_unlock(&ashmem_mutex);
 	return ret;
 }
@@ -358,14 +365,15 @@ static int ashmem_shrink(struct shrinker *s, struct shrink_control *sc)
 	if (!sc->nr_to_scan)
 		return lru_count;
 
-	mutex_lock(&ashmem_mutex);
-	list_for_each_entry_safe(range, next, &ashmem_lru_list, lru) {
-		loff_t start = range->pgstart * PAGE_SIZE;
-		loff_t end = (range->pgend + 1) * PAGE_SIZE;
+	if (!mutex_trylock(&ashmem_mutex))
+		return -1;
 
-		do_fallocate(range->asma->file,
-				FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
-				start, end - start);
+	list_for_each_entry_safe(range, next, &ashmem_lru_list, lru) {
+		struct inode *inode = range->asma->file->f_dentry->d_inode;
+		loff_t start = range->pgstart * PAGE_SIZE;
+		loff_t end = (range->pgend + 1) * PAGE_SIZE - 1;
+
+		vmtruncate_range(inode, start, end);
 		range->purged = ASHMEM_WAS_PURGED;
 		lru_del(range);
 
@@ -408,50 +416,48 @@ out:
 
 static int set_name(struct ashmem_area *asma, void __user *name)
 {
+	char lname[ASHMEM_NAME_LEN];
+	int len;
 	int ret = 0;
 
+	len = strncpy_from_user(lname, name, ASHMEM_NAME_LEN);
+	if (len < 0)
+		return len;
+	if (len == ASHMEM_NAME_LEN)
+		lname[ASHMEM_NAME_LEN - 1] = '\0';
 	mutex_lock(&ashmem_mutex);
 
 	/* cannot change an existing mapping's name */
-	if (unlikely(asma->file)) {
+	if (unlikely(asma->file))
 		ret = -EINVAL;
-		goto out;
-	}
+	else
+		strcpy(asma->name + ASHMEM_NAME_PREFIX_LEN, lname);
 
-	if (unlikely(copy_from_user(asma->name + ASHMEM_NAME_PREFIX_LEN,
-				    name, ASHMEM_NAME_LEN)))
-		ret = -EFAULT;
-	asma->name[ASHMEM_FULL_NAME_LEN-1] = '\0';
-
-out:
 	mutex_unlock(&ashmem_mutex);
-
 	return ret;
 }
 
 static int get_name(struct ashmem_area *asma, void __user *name)
 {
 	int ret = 0;
+	char lname[ASHMEM_NAME_LEN];
+	size_t len;
 
 	mutex_lock(&ashmem_mutex);
 	if (asma->name[ASHMEM_NAME_PREFIX_LEN] != '\0') {
-		size_t len;
-
 		/*
 		 * Copying only `len', instead of ASHMEM_NAME_LEN, bytes
 		 * prevents us from revealing one user's stack to another.
 		 */
 		len = strlen(asma->name + ASHMEM_NAME_PREFIX_LEN) + 1;
-		if (unlikely(copy_to_user(name,
-				asma->name + ASHMEM_NAME_PREFIX_LEN, len)))
-			ret = -EFAULT;
+		memcpy(lname, asma->name + ASHMEM_NAME_PREFIX_LEN, len);
 	} else {
-		if (unlikely(copy_to_user(name, ASHMEM_NAME_DEF,
-					  sizeof(ASHMEM_NAME_DEF))))
-			ret = -EFAULT;
+		len = strlen(ASHMEM_NAME_DEF) + 1;
+		memcpy(lname, ASHMEM_NAME_DEF, len);
 	}
 	mutex_unlock(&ashmem_mutex);
-
+	if (unlikely(copy_to_user(name, lname, len)))
+		ret = -EFAULT;
 	return ret;
 }
 

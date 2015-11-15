@@ -1,6 +1,5 @@
 /*
- * Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
- * Copyright (C) 2011 Sony Ericsson Mobile Communications AB.
+ * Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -26,8 +25,6 @@
 #include <linux/mfd/pm8xxx/core.h>
 #include <linux/mfd/pm8xxx/regulator.h>
 #include <linux/leds-pm8xxx.h>
-#include <mach/simple_remote_msm8960_pf.h>
-#include <mach/pm8921-mic_bias.h>
 
 #define REG_HWREV		0x002  /* PMIC4 revision */
 #define REG_HWREV_2		0x0E8  /* PMIC4 revision 2 */
@@ -66,6 +63,7 @@ struct pm8921 {
 	struct mfd_cell					*mfd_regulators;
 	struct pm8xxx_regulator_core_platform_data	*regulator_cdata;
 	u32						rev_registers;
+	u8						restart_reason;
 };
 
 static int pm8921_readb(const struct device *dev, u16 addr, u8 *val)
@@ -136,6 +134,14 @@ static int pm8921_get_revision(const struct device *dev)
 	return pmic->rev_registers & PM8921_REVISION_MASK;
 }
 
+static u8 pm8921_restart_reason(const struct device *dev)
+{
+	const struct pm8xxx_drvdata *pm8921_drvdata = dev_get_drvdata(dev);
+	const struct pm8921 *pmic = pm8921_drvdata->pm_chip_data;
+
+	return pmic->restart_reason;
+}
+
 static struct pm8xxx_drvdata pm8921_drvdata = {
 	.pmic_readb		= pm8921_readb,
 	.pmic_writeb		= pm8921_writeb,
@@ -144,6 +150,7 @@ static struct pm8xxx_drvdata pm8921_drvdata = {
 	.pmic_read_irq_stat	= pm8921_read_irq_stat,
 	.pmic_get_version	= pm8921_get_version,
 	.pmic_get_revision	= pm8921_get_revision,
+	.pmic_restart_reason	= pm8921_restart_reason,
 };
 
 static struct resource gpio_cell_resources[] = {
@@ -370,22 +377,6 @@ static struct mfd_cell ccadc_cell __devinitdata = {
 
 static struct mfd_cell vibrator_cell __devinitdata = {
 	.name           = PM8XXX_VIBRATOR_DEV_NAME,
-	.id             = -1,
-};
-
-static const struct resource resources_simple_remote[] __devinitconst = {
-	SINGLE_IRQ_RESOURCE(NULL, PM8921_HSED_BTN_IRQ),
-};
-
-static struct mfd_cell simple_remote_cell __devinitdata = {
-	.name = SIMPLE_REMOTE_PF_NAME,
-	.id = -1,
-	.num_resources = ARRAY_SIZE(resources_simple_remote),
-	.resources = resources_simple_remote,
-};
-
-static struct mfd_cell mic_bias_cell __devinitdata = {
-	.name           = PM8921_MIC_BIAS_NAME,
 	.id             = -1,
 };
 
@@ -631,6 +622,18 @@ pm8921_add_subdevices(const struct pm8921_platform_data *pdata,
 		}
 	}
 
+	if (pdata->pwrkey_pdata) {
+		pwrkey_cell.platform_data = pdata->pwrkey_pdata;
+		pwrkey_cell.pdata_size =
+			sizeof(struct pm8xxx_pwrkey_platform_data);
+		ret = mfd_add_devices(pmic->dev, 0, &pwrkey_cell, 1, NULL,
+					irq_base);
+		if (ret) {
+			pr_err("Failed to add pwrkey subdevice ret=%d\n", ret);
+			goto bail;
+		}
+	}
+
 	if (pdata->mpp_pdata) {
 		if (version == PM8XXX_VERSION_8917) {
 			mpp_cell_resources[0].end = mpp_cell_resources[0].end
@@ -658,18 +661,6 @@ pm8921_add_subdevices(const struct pm8921_platform_data *pdata,
 				irq_base);
 		if (ret) {
 			pr_err("Failed to add rtc subdevice ret=%d\n", ret);
-			goto bail;
-		}
-	}
-
-	if (pdata->pwrkey_pdata) {
-		pwrkey_cell.platform_data = pdata->pwrkey_pdata;
-		pwrkey_cell.pdata_size =
-			sizeof(struct pm8xxx_pwrkey_platform_data);
-		ret = mfd_add_devices(pmic->dev, 0, &pwrkey_cell, 1, NULL,
-					irq_base);
-		if (ret) {
-			pr_err("Failed to add pwrkey subdevice ret=%d\n", ret);
 			goto bail;
 		}
 	}
@@ -825,31 +816,6 @@ pm8921_add_subdevices(const struct pm8921_platform_data *pdata,
 		}
 	}
 
-	if (pdata->simple_remote_pdata) {
-		simple_remote_cell.platform_data = pdata->simple_remote_pdata;
-		simple_remote_cell.pdata_size =
-				sizeof(struct simple_remote_platform_data);
-		ret = mfd_add_devices(pmic->dev, 0, &simple_remote_cell, 1,
-					NULL, irq_base);
-		if (ret) {
-			pr_err("Failed to add simple remote subdevice"
-			       " ret=%d\n", ret);
-			goto bail;
-		}
-	}
-
-	if (pdata->mic_bias_pdata) {
-		mic_bias_cell.platform_data = pdata->mic_bias_pdata;
-		mic_bias_cell.pdata_size =
-				sizeof(struct pm8921_mic_bias_platform_data);
-		ret = mfd_add_devices(pmic->dev, 0, &mic_bias_cell, 1, NULL, 0);
-		if (ret) {
-			pr_err("Failed to add mic bias subdevice ret=%d\n",
-									ret);
-			goto bail;
-		}
-	}
-
 	return 0;
 bail:
 	if (pmic->irq_chip) {
@@ -858,17 +824,6 @@ bail:
 	}
 	return ret;
 }
-
-static const char * const pm8921_restart_reason[] = {
-	[0] = "Unknown",
-	[1] = "Triggered from CBL (external charger)",
-	[2] = "Triggered from KPD (power key press)",
-	[3] = "Triggered from CHG (usb charger insertion)",
-	[4] = "Triggered from SMPL (sudden momentary power loss)",
-	[5] = "Triggered from RTC (real time clock)",
-	[6] = "Triggered by Hard Reset",
-	[7] = "Triggered by General Purpose Trigger",
-};
 
 static const char * const pm8921_rev_names[] = {
 	[PM8XXX_REVISION_8921_TEST]	= "test",
@@ -962,8 +917,9 @@ static int __devinit pm8921_probe(struct platform_device *pdev)
 		pr_err("Cannot read restart reason rc=%d\n", rc);
 		goto err_read_rev;
 	}
-	val &= PM8921_RESTART_REASON_MASK;
-	pr_info("PMIC Restart Reason: %s\n", pm8921_restart_reason[val]);
+	val &= PM8XXX_RESTART_REASON_MASK;
+	pr_info("PMIC Restart Reason: %s\n", pm8xxx_restart_reason_str[val]);
+	pmic->restart_reason = val;
 
 	rc = pm8921_add_subdevices(pdata, pmic);
 	if (rc) {

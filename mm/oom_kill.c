@@ -58,8 +58,13 @@ void compare_swap_oom_score_adj(int old_val, int new_val)
 	struct sighand_struct *sighand = current->sighand;
 
 	spin_lock_irq(&sighand->siglock);
-	if (current->signal->oom_score_adj == old_val)
+	if (current->signal->oom_score_adj == old_val) {
 		current->signal->oom_score_adj = new_val;
+#ifdef CONFIG_ANDROID_LMK_ADJ_RBTREE
+		delete_from_adj_tree(current);
+		add_2_adj_tree(current);
+#endif
+	}
 	trace_oom_score_adj_update(current);
 	spin_unlock_irq(&sighand->siglock);
 }
@@ -80,6 +85,10 @@ int test_set_oom_score_adj(int new_val)
 	spin_lock_irq(&sighand->siglock);
 	old_val = current->signal->oom_score_adj;
 	current->signal->oom_score_adj = new_val;
+#ifdef CONFIG_ANDROID_LMK_ADJ_RBTREE
+	delete_from_adj_tree(current);
+	add_2_adj_tree(current);
+#endif
 	trace_oom_score_adj_update(current);
 	spin_unlock_irq(&sighand->siglock);
 
@@ -389,7 +398,7 @@ static struct task_struct *select_bad_process(unsigned int *ppoints,
  *
  * Call with tasklist_lock read-locked.
  */
-static void dump_tasks(const struct mem_cgroup *memcg, const nodemask_t *nodemask)
+void dump_tasks(const struct mem_cgroup *memcg, const nodemask_t *nodemask)
 {
 	struct task_struct *p;
 	struct task_struct *task;
@@ -433,6 +442,23 @@ static void dump_header(struct task_struct *p, gfp_t gfp_mask, int order,
 	show_mem(SHOW_MEM_FILTER_NODES);
 	if (sysctl_oom_dump_tasks)
 		dump_tasks(memcg, nodemask);
+}
+
+/*
+ * Number of OOM killer invocations (including memcg OOM killer).
+ * Primarily used by PM freezer to check for potential races with
+ * OOM killed frozen task.
+ */
+static atomic_t oom_kills = ATOMIC_INIT(0);
+
+int oom_kills_count(void)
+{
+	return atomic_read(&oom_kills);
+}
+
+void note_oom_kill(void)
+{
+	atomic_inc(&oom_kills);
 }
 
 #define K(x) ((x) << (PAGE_SHIFT-10))

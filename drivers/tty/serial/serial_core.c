@@ -89,8 +89,6 @@ static void uart_stop(struct tty_struct *tty)
 	spin_unlock_irqrestore(&port->lock, flags);
 }
 
-extern unsigned long serial_flags;
-
 static void __uart_start(struct tty_struct *tty)
 {
 	struct uart_state *state = tty->driver_data;
@@ -108,11 +106,11 @@ static void uart_start(struct tty_struct *tty)
 {
 	struct uart_state *state = tty->driver_data;
 	struct uart_port *port = state->uart_port;
-/*	unsigned long flags;*/
+	unsigned long flags;
 
-	spin_lock_irqsave(&port->lock, serial_flags);
+	spin_lock_irqsave(&port->lock, flags);
 	__uart_start(tty);
-	spin_unlock_irqrestore(&port->lock, serial_flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 static inline void
@@ -598,16 +596,16 @@ static void uart_send_xchar(struct tty_struct *tty, char ch)
 {
 	struct uart_state *state = tty->driver_data;
 	struct uart_port *port = state->uart_port;
-/*	unsigned long flags;*/
+	unsigned long flags;
 
 	if (port->ops->send_xchar)
 		port->ops->send_xchar(port, ch);
 	else {
 		port->x_char = ch;
 		if (ch) {
-			spin_lock_irqsave(&port->lock, serial_flags);
+			spin_lock_irqsave(&port->lock, flags);
 			port->ops->start_tx(port);
-			spin_unlock_irqrestore(&port->lock, serial_flags);
+			spin_unlock_irqrestore(&port->lock, flags);
 		}
 	}
 }
@@ -1994,11 +1992,10 @@ int uart_resume_port(struct uart_driver *drv, struct uart_port *uport)
 			if (ret == 0) {
 				if (tty)
 					uart_change_speed(tty, state, NULL);
-				spin_lock_irqsave(&port->lock, serial_flags);
+				spin_lock_irq(&uport->lock);
 				ops->set_mctrl(uport, uport->mctrl);
 				ops->start_tx(uport);
-				spin_unlock_irqrestore(&port->lock,
-					serial_flags);
+				spin_unlock_irq(&uport->lock);
 				set_bit(ASYNCB_INITIALIZED, &port->flags);
 			} else {
 				/*

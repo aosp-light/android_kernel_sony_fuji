@@ -33,6 +33,7 @@
 #include <linux/bma250_ng.h>
 #include <linux/apds9702.h>
 #include <linux/clearpad.h>
+#include <linux/dma-contiguous.h>
 #include <linux/dma-mapping.h>
 #include <linux/lm356x.h>
 //adding by rick
@@ -77,7 +78,6 @@
 
 #include <mach/dma.h>
 #include <mach/mpp.h>
-#include <mach/bcm_bt_lpm.h>
 #include <mach/board.h>
 #include <mach/irqs.h>
 #include <mach/msm_spi.h>
@@ -156,7 +156,6 @@
 
 #ifdef CONFIG_NFC_PN544
 #include <linux/pn544.h>
-#include "nfc-fuji.h"
 #endif
 
 #ifdef CONFIG_SEMC_FELICA_SUPPORT
@@ -387,8 +386,8 @@ static struct regulator_init_data saw_s0_init_data = {
 		.constraints = {
 			.name = "8901_s0",
 			.valid_ops_mask = REGULATOR_CHANGE_VOLTAGE,
-			.min_uV = 775000,
-			.max_uV = 1400000,
+			.min_uV = 800000,
+			.max_uV = 1325000,
 		},
 		.consumer_supplies = vreg_consumers_8901_S0,
 		.num_consumer_supplies = ARRAY_SIZE(vreg_consumers_8901_S0),
@@ -398,8 +397,8 @@ static struct regulator_init_data saw_s1_init_data = {
 		.constraints = {
 			.name = "8901_s1",
 			.valid_ops_mask = REGULATOR_CHANGE_VOLTAGE,
-			.min_uV = 775000,
-			.max_uV = 1400000,
+			.min_uV = 800000,
+			.max_uV = 1325000,
 		},
 		.consumer_supplies = vreg_consumers_8901_S1,
 		.num_consumer_supplies = ARRAY_SIZE(vreg_consumers_8901_S1),
@@ -1324,7 +1323,7 @@ do_vbus_off:
 
 static struct msm_usb_host_platform_data msm_usb_host_pdata = {
 	.phy_info	= (USB_PHY_INTEGRATED | USB_PHY_MODEL_45NM),
-	.power_budget	= 300,
+	.power_budget	= 500,
 };
 #endif
 
@@ -1430,7 +1429,6 @@ static int usb_diag_update_pid_and_serial_num(uint32_t pid, const char *snum)
 
 static struct android_usb_platform_data android_usb_pdata = {
 	.update_pid_and_serial_num = usb_diag_update_pid_and_serial_num,
-	.can_stall = 1,
 };
 
 static struct platform_device android_usb_device = {
@@ -1504,6 +1502,9 @@ static struct platform_device semc_chg_cradle = {
 static char *semc_chg_usb_supplied_to[] = {
 	BATTERY_CHARGALG_NAME,
 	BQ27520_NAME,
+#ifdef CONFIG_CHARGER_BQ24185
+	BQ24185_NAME,
+#endif
 };
 #endif
 
@@ -1719,7 +1720,7 @@ static struct platform_device battery_chargalg_platform_device = {
 	},
 };
 
-#if defined(CONFIG_MSM_VPE) || defined(CONFIG_SEMC_VPE1)
+#ifdef CONFIG_MSM_VPE
 static struct resource msm_vpe_resources[] = {
 	{
 		.start	= 0x05300000,
@@ -1732,23 +1733,12 @@ static struct resource msm_vpe_resources[] = {
 		.flags	= IORESOURCE_IRQ,
 	},
 };
-#endif
 
-#ifdef CONFIG_MSM_VPE
 static struct platform_device msm_vpe_device = {
 	.name = "msm_vpe",
 	.id   = 0,
 	.num_resources = ARRAY_SIZE(msm_vpe_resources),
 	.resource = msm_vpe_resources,
-};
-#endif
-
-#if defined(CONFIG_SEMC_VPE1)
-static struct platform_device semc_vpe1_device = {
-	.name		= "semc_vpe1",
-	.id		= 0,
-	.num_resources	= ARRAY_SIZE(msm_vpe_resources),
-	.resource	= msm_vpe_resources,
 };
 #endif
 
@@ -2376,13 +2366,13 @@ unsigned char hdmi_is_primary;
 #endif
 
 #ifdef CONFIG_FB_MSM_OVERLAY0_WRITEBACK
-#define MSM_FB_OVERLAY0_WRITEBACK_SIZE roundup((1280 * 720 * 3 * 3), 4096)
+#define MSM_FB_OVERLAY0_WRITEBACK_SIZE round_up((1280 * 720 * 3 * 3), 4096)
 #else
 #define MSM_FB_OVERLAY0_WRITEBACK_SIZE (0)
 #endif  /* CONFIG_FB_MSM_OVERLAY0_WRITEBACK */
 
 #ifdef CONFIG_FB_MSM_OVERLAY1_WRITEBACK
-#define MSM_FB_OVERLAY1_WRITEBACK_SIZE roundup((1920 * 1080 * 3 * 3), 4096)
+#define MSM_FB_OVERLAY1_WRITEBACK_SIZE round_up((1920 * 1080 * 3 * 3), 4096)
 #else
 #define MSM_FB_OVERLAY1_WRITEBACK_SIZE (0)
 #endif  /* CONFIG_FB_MSM_OVERLAY1_WRITEBACK */
@@ -2391,7 +2381,6 @@ unsigned char hdmi_is_primary;
 #define MSM_PMEM_ADSP_SIZE         0x4200000
 #define MSM_PMEM_CAMERA_SIZE       0x5000000
 #define MSM_PMEM_AUDIO_SIZE        0x4CF000
-#define MSM_PMEM_SWIQI_SIZE        0x2000000
 
 #define MSM_SMI_BASE          0x38000000
 #define MSM_SMI_SIZE          0x4000000
@@ -2433,11 +2422,7 @@ unsigned char hdmi_is_primary;
 #define MSM_ION_SF_SIZE                0x7000000 /* 112MB */
 #define MSM_ION_CAMERA_SIZE     0x5000000 /*80MB*/
 
-#ifdef CONFIG_FB_MSM_OVERLAY1_WRITEBACK
-#define MSM_ION_WB_SIZE		0x19B6000
-#else
-#define MSM_ION_WB_SIZE		0x7E9000
-#endif
+#define MSM_ION_WB_SIZE		MSM_FB_OVERLAY1_WRITEBACK_SIZE
 
 #ifdef CONFIG_QSEECOM
 #define MSM_ION_QSECOM_SIZE	0x300000 /* (3MB) */
@@ -2502,16 +2487,6 @@ static int __init pmem_audio_size_setup(char *p)
 }
 early_param("pmem_audio_size", pmem_audio_size_setup);
 
-#ifdef CONFIG_SEMC_SWIQI
-static unsigned pmem_swiqi_size = MSM_PMEM_SWIQI_SIZE;
-
-static int __init pmem_swiqi_size_setup(char *p)
-{
-	pmem_swiqi_size = memparse(p, NULL);
-	return 0;
-}
-early_param("pmem_swiqi_size", pmem_swiqi_size_setup);
-#endif
 static unsigned pmem_tzcom_size = MSM_PMEM_TZCOM_SIZE;
 static int __init pmem_tzcom_size_setup(char *p)
 {
@@ -2639,21 +2614,6 @@ static struct platform_device android_pmem_audio_device = {
 	.id = 4,
 	.dev = { .platform_data = &android_pmem_audio_pdata },
 };
-#ifdef CONFIG_SEMC_SWIQI
-static struct android_pmem_platform_data android_pmem_swiqi_pdata = {
-	.name = "pmem_swiqi",
-	.allocator_type = PMEM_ALLOCATORTYPE_BITMAP,
-	.cached = 1,
-	.memory_type = MEMTYPE_EBI1,
-	.map_on_demand = 1,
-};
-
-static struct platform_device android_pmem_swiqi_device = {
-	.name = "android_pmem",
-	.id = 5,
-	.dev = { .platform_data = &android_pmem_swiqi_pdata },
-};
-#endif
 #endif /*CONFIG_MSM_MULTIMEDIA_USE_ION*/
 static struct android_pmem_platform_data android_pmem_tzcom_pdata = {
         .name = "pmem_tzcom",
@@ -2958,71 +2918,74 @@ static struct clearpad_platform_data clearpad_platform_data = {
 };
 
 #ifdef CONFIG_NFC_PN544
-int pn544_chip_config(enum pn544_state state, void *not_used)
+#if defined(CONFIG_MACH_SEMC_NOZOMI) || defined(CONFIG_MACH_SEMC_NOZOMI2)
+static int pn544_pm8xxx_config(unsigned int flag, int enable)
 {
-	switch (state) {
-	case PN544_STATE_OFF:
-		gpio_set_value_cansleep(
-			PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_NFC_FWDL_EN - 1), 0);
-		gpio_set_value_cansleep(
-			PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_NFC_EN - 1), 0);
-		usleep(50000);
-		break;
-	case PN544_STATE_ON:
-		gpio_set_value_cansleep(
-			PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_NFC_FWDL_EN - 1), 0);
-		gpio_set_value_cansleep(
-			PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_NFC_EN - 1), 1);
-		usleep(10000);
-		break;
-	case PN544_STATE_FWDL:
-		gpio_set_value_cansleep(
-			PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_NFC_FWDL_EN - 1), 1);
-		gpio_set_value_cansleep(
-			PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_NFC_EN - 1), 0);
-		usleep(10000);
-		gpio_set_value_cansleep(
-			PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_NFC_EN - 1), 1);
-		break;
-	default:
-		pr_err("%s: undefined state %d\n", __func__, state);
-		return -EINVAL;
+	int ret = 0;
+	unsigned int status = 0;
+	struct pm8xxx_nfc_device *pmic_nfc;
+
+	pmic_nfc = pm8xxx_nfc_request();
+	if (!pmic_nfc) {
+		pr_err("%s: cannot open pmic-nfc\n", __func__);
+		return -ENODEV;
 	}
-	return 0;
-}
 
-int pn544_gpio_request(void)
-{
-	int ret;
+	ret = pm8xxx_nfc_get_status(pmic_nfc, PM_NFC_CTRL_REQ, &status);
+	if (ret < 0) {
+		pr_err("%s: cannot get status from pmic\n", __func__);
+		return ret;
+	}
 
-	ret = gpio_request(
-		PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_NFC_IRQ - 1), "pn544_irq");
-	if (ret)
-		goto err_irq;
-	ret = gpio_request(
-		PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_NFC_EN - 1), "pn544_ven");
-	if (ret)
-		goto err_ven;
-	ret = gpio_request(
-		PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_NFC_FWDL_EN - 1), "pn544_fw");
-	if (ret)
-		goto err_fw;
-	return 0;
-err_fw:
-	gpio_free(PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_NFC_EN - 1));
-err_ven:
-	gpio_free(PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_NFC_IRQ - 1));
-err_irq:
-	pr_err("%s: gpio request err %d\n", __func__, ret);
+	if (enable)
+		status |= flag;
+	else
+		status &= ~flag;
+
+	ret = pm8xxx_nfc_config(pmic_nfc, PM_NFC_CTRL_REQ, status);
+	if (ret < 0)
+		pr_err("%s: cannot set status to pmic\n", __func__);
+
 	return ret;
 }
 
-void pn544_gpio_release(void)
+static int pn544_vreg_init(void)
 {
-	gpio_free(PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_NFC_EN - 1));
-	gpio_free(PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_NFC_IRQ - 1));
-	gpio_free(PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_NFC_FWDL_EN - 1));
+	int ret;
+
+	ret = pn544_pm8xxx_config(PM_NFC_VDDLDO_MON_LEVEL |
+			PM_NFC_VPH_PWR_EN | PM_NFC_EXT_VDDLDO_EN, false);
+	if (ret < 0)
+	    return ret;
+
+	return pn544_pm8xxx_config(PM_NFC_SUPPORT_EN | PM_NFC_EN, true);
 }
+
+int pn544_vreg_enable(void)
+{
+	return pn544_pm8xxx_config(PM_NFC_LDO_EN, true);
+}
+
+void pn544_vreg_disable(void)
+{
+	pn544_pm8xxx_config(PM_NFC_LDO_EN, false);
+}
+
+static struct pn544_i2c_platform_data pn544_pdata = {
+	.irq_gpio = PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_NFC_IRQ - 1),
+	.ven_gpio = PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_NFC_EN - 1),
+	.firm_gpio = PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_NFC_FWDL_EN - 1),
+	.vreg_init = pn544_vreg_init,
+	.vreg_enable = pn544_vreg_enable,
+	.vreg_disable = pn544_vreg_disable,
+};
+#else
+static struct pn544_i2c_platform_data pn544_pdata = {
+	.irq_gpio = PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_NFC_IRQ - 1),
+	.ven_gpio = PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_NFC_EN - 1),
+	.firm_gpio = PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_NFC_FWDL_EN - 1),
+};
+#endif
 #endif
 
 static struct i2c_board_info gsbi3_peripherals_info[] __initdata = {
@@ -3230,19 +3193,27 @@ static struct apds9702_platform_data apds9702_pdata = {
 	.phys_dev_path = "/sys/devices/i2c-3/3-0054"
 };
 
+static int akm897x_power_on = 0;
+
 static int akm897x_gpio_setup(void)
 {
-	int rc;
-
-	rc = gpio_request(AKM897X_GPIO, GPIO_FUNC_NAME);
-	if (rc)
-		pr_err("%s: gpio_request failed rc=%d\n", __func__, rc);
-	return rc;
+	if (!akm897x_power_on) {
+		int rc = gpio_request(AKM897X_GPIO, GPIO_FUNC_NAME);
+		if (rc) {
+			pr_err("%s: gpio_request failed rc=%d\n", __func__, rc);
+			return rc;
+		}
+		akm897x_power_on = 1;
+	}
+	return 0;
 }
 
 static void akm897x_gpio_shutdown(void)
 {
-	gpio_free(AKM897X_GPIO);
+	if (akm897x_power_on) {
+		gpio_free(AKM897X_GPIO);
+		akm897x_power_on = 0;
+	}
 }
 
 static void akm897x_hw_config(int enable)
@@ -3339,7 +3310,7 @@ static struct i2c_board_info fuji_gsbi8_peripherals_info[] __initdata = {
 	},
 #ifdef CONFIG_NFC_PN544
 	{
-		I2C_BOARD_INFO(PN544_DEVICE_NAME, 0x50 >> 1),
+		I2C_BOARD_INFO("pn544", 0x50 >> 1),
 		.irq = PM8058_GPIO_IRQ(PM8058_IRQ_BASE, PMIC_GPIO_NFC_IRQ - 1),
 		.platform_data = &pn544_pdata,
 	},
@@ -3443,7 +3414,6 @@ static struct msm_serial_hs_platform_data msm_uart_dm7_pdata = {
 
 static struct msm_serial_hs_platform_data msm_uart_dm1_pdata = {
 	.inject_rx_on_wakeup = 0,
-	.exit_lpm_cb = bcm_bt_lpm_exit_lpm_locked,
 };
 static struct platform_device msm_bt_power_device = {
 	.name = "bt_power",
@@ -3493,19 +3463,32 @@ error:
 		msm_gpiomux_put(bt_gpios[i]);
 }
 
-static struct bcm_bt_lpm_platform_data bcm_bt_lpm_pdata = {
-	.gpio_wake = BT_GPIO_WAKE,
-	.gpio_host_wake = BT_GPIO_HOST_WAKE,
-	.request_clock_off_locked = msm_hs_request_clock_off_locked,
-	.request_clock_on_locked = msm_hs_request_clock_on_locked,
+static struct resource bluesleep_resources[] = {
+	{
+		.name   = "gpio_host_wake",
+		.start  = BT_GPIO_HOST_WAKE,
+		.end    = BT_GPIO_HOST_WAKE,
+		.flags  = IORESOURCE_IO,
+	},
+	{
+		.name   = "gpio_ext_wake",
+		.start  = BT_GPIO_WAKE,
+		.end    = BT_GPIO_WAKE,
+		.flags  = IORESOURCE_IO,
+	},
+	{
+		.name   = "host_wake",
+		.start  = MSM_GPIO_TO_INT(BT_GPIO_HOST_WAKE),
+		.end    = MSM_GPIO_TO_INT(BT_GPIO_HOST_WAKE),
+		.flags  = IORESOURCE_IRQ,
+	},
 };
 
-struct platform_device bcm_bt_lpm_device = {
-	.name = "bcm_bt_lpm",
-	.id = 0,
-	.dev = {
-		.platform_data = &bcm_bt_lpm_pdata,
-	},
+static struct platform_device msm_bluesleep_device = {
+	.name		= "bluesleep",
+	.id		= -1,
+	.num_resources	= ARRAY_SIZE(bluesleep_resources),
+	.resource	= bluesleep_resources,
 };
 
 #define CONSOLE_NAME "ttyHSL"
@@ -3538,8 +3521,8 @@ static struct regulator_consumer_supply vreg_consumers_PM8058_S1[] = {
 /* RPM early regulator constraints */
 static struct rpm_regulator_init_data rpm_regulator_early_init_data[] = {
 	/*	 ID       a_on pd ss min_uV   max_uV   init_ip    freq */
-	RPM_SMPS(PM8058_S0, 0, 1, 1,  500000, 1400000, SMPS_HMIN, 1p60),
-	RPM_SMPS(PM8058_S1, 0, 1, 1,  500000, 1400000, SMPS_HMIN, 1p60),
+	RPM_SMPS(PM8058_S0, 0, 1, 1,  500000, 1325000, SMPS_HMIN, 1p60),
+	RPM_SMPS(PM8058_S1, 0, 1, 1,  500000, 1250000, SMPS_HMIN, 1p60),
 };
 
 static struct rpm_regulator_platform_data rpm_regulator_early_pdata = {
@@ -3990,50 +3973,48 @@ typedef struct cntry_locales_custom {
 
 static cntry_locales_custom_t fuji_wifi_translate_custom_table[] = {
 /* Table should be filled out based on custom platform regulatory requirement */
-	{"",   "XY", 9},  /* universal */
-	{"US", "Q2", 32}, /* input ISO "US" to : Q2 regrev 32 */
-	{"CA", "Q2", 32}, /* input ISO "CA" to : Q2 regrev 32 */
-	{"EU", "EU", 51}, /* European union countries */
-	{"AT", "EU", 51},
-	{"BE", "EU", 51},
-	{"BG", "EU", 51},
-	{"CY", "EU", 51},
-	{"CZ", "EU", 51},
-	{"DK", "EU", 51},
-	{"EE", "EU", 51},
-	{"FI", "EU", 51},
-	{"FR", "EU", 51},
-	{"DE", "EU", 51},
-	{"GR", "EU", 51},
-	{"HU", "EU", 51},
-	{"IE", "EU", 51},
-	{"IT", "EU", 51},
-	{"LV", "EU", 51},
-	{"LI", "EU", 51},
-	{"LT", "EU", 51},
-	{"LU", "EU", 51},
-	{"MT", "EU", 51},
-	{"NL", "EU", 51},
-	{"PL", "EU", 51},
-	{"PT", "EU", 51},
-	{"RO", "EU", 51},
-	{"SK", "EU", 51},
-	{"SI", "EU", 51},
-	{"ES", "EU", 51},
-	{"SE", "EU", 51},
-	{"GB", "EU", 51}, /* input ISO "GB" to : EU regrev 51 */
+	{"",   "XY", 4},  /* Universal if Country code is unknown or empty */
+	{"US", "US", 69}, /* input ISO "US" to : US regrev 69 */
+	{"CA", "US", 69}, /* input ISO "CA" to : US regrev 69 */
+	{"EU", "EU", 5},  /* European union countries to : EU regrev 05 */
+	{"AT", "EU", 5},
+	{"BE", "EU", 5},
+	{"BG", "EU", 5},
+	{"CY", "EU", 5},
+	{"CZ", "EU", 5},
+	{"DK", "EU", 5},
+	{"EE", "EU", 5},
+	{"FI", "EU", 5},
+	{"FR", "EU", 5},
+	{"DE", "EU", 5},
+	{"GR", "EU", 5},
+	{"HU", "EU", 5},
+	{"IE", "EU", 5},
+	{"IT", "EU", 5},
+	{"LV", "EU", 5},
+	{"LI", "EU", 5},
+	{"LT", "EU", 5},
+	{"LU", "EU", 5},
+	{"MT", "EU", 5},
+	{"NL", "EU", 5},
+	{"PL", "EU", 5},
+	{"PT", "EU", 5},
+	{"RO", "EU", 5},
+	{"SK", "EU", 5},
+	{"SI", "EU", 5},
+	{"ES", "EU", 5},
+	{"SE", "EU", 5},
+	{"GB", "EU", 5},
+	{"KR", "XY", 3},
+	{"AU", "XY", 3},
+	{"CN", "XY", 3}, /* input ISO "CN" to : XY regrev 03 */
+	{"TW", "XY", 3},
+	{"AR", "XY", 3},
+	{"MX", "XY", 3},
 	{"IL", "IL", 0},
 	{"CH", "CH", 0},
 	{"TR", "TR", 0},
 	{"NO", "NO", 0},
-	{"KR", "KR", 25},
-	{"AU", "XY", 9},
-	{"CN", "CN", 0},
-	{"TW", "XY", 9},
-	{"AR", "XY", 9},
-	{"MX", "XY", 9},
-	{"JP", "EU", 51},
-	{"BR", "KR", 25}
 };
 
 static void *fuji_wifi_get_country_code(char *ccode)
@@ -4322,7 +4303,7 @@ static struct platform_device *fuji_devices[] __initdata = {
 #endif
 	&msm_device_uart_dm1,
 	&msm_bt_power_device,
-	&bcm_bt_lpm_device,
+	&msm_bluesleep_device,
 #ifdef CONFIG_MSM_GSBI5_UART
 	&msm_device_uart_gsbi5,
 #endif
@@ -4361,9 +4342,6 @@ static struct platform_device *fuji_devices[] __initdata = {
 	&android_pmem_adsp_device,
 	&android_pmem_camera_device,
 	&android_pmem_smipool_device,
-#ifdef CONFIG_SEMC_SWIQI
-	&android_pmem_swiqi_device,
-#endif
 	&android_pmem_audio_device,
 #endif /*CONFIG_MSM_MULTIMEDIA_USE_ION*/
 	&android_pmem_tzcom_device,
@@ -4390,9 +4368,6 @@ static struct platform_device *fuji_devices[] __initdata = {
 #ifndef CONFIG_MSM_CAMERA_V4L2
 #ifdef CONFIG_MSM_VPE
 	&msm_vpe_device,
-#endif
-#if defined(CONFIG_SEMC_VPE1)
-	&semc_vpe1_device,
 #endif
 #endif
 
@@ -4491,10 +4466,23 @@ static struct ion_cp_heap_pdata cp_wb_ion_pdata = {
 static struct ion_co_heap_pdata mm_fw_co_ion_pdata = {
 	.adjacent_mem_id = ION_CP_MM_HEAP_ID,
 };
+#endif
 
 static struct ion_co_heap_pdata co_ion_pdata = {
 	.adjacent_mem_id = INVALID_HEAP_ID,
 	.align = PAGE_SIZE,
+};
+
+#ifdef CONFIG_CMA
+static u64 msm_dmamask = DMA_BIT_MASK(32);
+
+static struct platform_device ion_cma_heap_device = {
+	.name = "ion-cma-heap-device",
+	.id = -1,
+	.dev = {
+		.dma_mask = &msm_dmamask,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
+	}
 };
 #endif
 
@@ -4544,6 +4532,17 @@ struct ion_platform_heap msm8x60_heaps [] = {
 			.extra_data = (void *) &cp_mfc_ion_pdata,
 		},
 #ifndef CONFIG_MSM_IOMMU
+#ifdef CONFIG_CMA
+		{
+			.id	= ION_SF_HEAP_ID,
+			.type	= ION_HEAP_TYPE_DMA,
+			.name	= ION_SF_HEAP_NAME,
+			.size	= MSM_ION_SF_SIZE,
+			.memory_type = ION_EBI_TYPE,
+			.extra_data = (void *)&co_ion_pdata,
+			.priv	= &ion_cma_heap_device.dev,
+		},
+#else
 		{
 			.id	= ION_SF_HEAP_ID,
 			.type	= ION_HEAP_TYPE_CARVEOUT,
@@ -4553,11 +4552,24 @@ struct ion_platform_heap msm8x60_heaps [] = {
 			.extra_data = (void *)&co_ion_pdata,
 		},
 #endif
+#else
 		{
 			.id	= ION_IOMMU_HEAP_ID,
 			.type	= ION_HEAP_TYPE_IOMMU,
 			.name	= ION_IOMMU_HEAP_NAME,
 		},
+#endif
+#ifdef CONFIG_CMA
+		{
+			.id	= ION_CAMERA_HEAP_ID,
+			.type	= ION_HEAP_TYPE_DMA,
+			.name	= ION_CAMERA_HEAP_NAME,
+			.size	= MSM_ION_CAMERA_SIZE,
+			.memory_type = ION_EBI_TYPE,
+			.extra_data = &co_ion_pdata,
+			.priv	= &ion_cma_heap_device.dev,
+		},
+#else
 		{
 			.id	= ION_CAMERA_HEAP_ID,
 			.type	= ION_HEAP_TYPE_CARVEOUT,
@@ -4566,6 +4578,7 @@ struct ion_platform_heap msm8x60_heaps [] = {
 			.memory_type = ION_EBI_TYPE,
 			.extra_data = &co_ion_pdata,
 		},
+#endif
 		{
 			.id     = ION_CP_WB_HEAP_ID,
 			.type   = ION_HEAP_TYPE_CP,
@@ -4663,8 +4676,16 @@ static void __init reserve_ion_memory(void)
 		}
 	}
 
+#ifdef CONFIG_CMA
+	dma_declare_contiguous(
+		&ion_cma_heap_device.dev,
+		msm_ion_sf_size + MSM_ION_CAMERA_SIZE,
+		0,
+		0);
+#else
 	msm8x60_reserve_table[MEMTYPE_EBI1].size += msm_ion_sf_size;
 	msm8x60_reserve_table[MEMTYPE_EBI1].size += MSM_ION_CAMERA_SIZE;
+#endif
 	msm8x60_reserve_table[MEMTYPE_EBI1].size += MSM_ION_WB_SIZE;
 	msm8x60_reserve_table[MEMTYPE_EBI1].size += MSM_ION_AUDIO_SIZE;
 #ifdef CONFIG_QSEECOM
@@ -4684,7 +4705,6 @@ static void __init size_pmem_devices(void)
 		pmem_sf_size = MSM_HDMI_PRIM_PMEM_SF_SIZE;
 	android_pmem_pdata.size = pmem_sf_size;
 	android_pmem_camera_pdata.size = pmem_camera_size;
-	android_pmem_swiqi_pdata.size = pmem_swiqi_size;
 	android_pmem_audio_pdata.size = MSM_PMEM_AUDIO_SIZE;
 #endif /*CONFIG_MSM_MULTIMEDIA_USE_ION*/
 	android_pmem_tzcom_pdata.size = pmem_tzcom_size;
@@ -4706,7 +4726,6 @@ static void __init reserve_pmem_memory(void)
 	reserve_memory_for(&android_pmem_smipool_pdata);
 	reserve_memory_for(&android_pmem_pdata);
 	reserve_memory_for(&android_pmem_camera_pdata);
-	reserve_memory_for(&android_pmem_swiqi_pdata);
 	reserve_memory_for(&android_pmem_audio_pdata);
 #endif /*CONFIG_MSM_MULTIMEDIA_USE_ION*/
 	reserve_memory_for(&android_pmem_tzcom_pdata);
@@ -7997,6 +8016,8 @@ static struct msm_panel_common_pdata mdp_pdata = {
 	.mem_hid = MEMTYPE_EBI1,
 #endif
 	.mdp_iommu_split_domain = 0,
+	.ov0_wb_hid = BIT(ION_CP_MM_HEAP_ID),
+	.ov1_wb_hid = BIT(ION_CP_WB_HEAP_ID),
 };
 
 static void __init reserve_mdp_memory(void)
@@ -8180,6 +8201,7 @@ static void __init msm8x60_init(struct msm_board_data *board_data)
 	uint32_t soc_platform_version;
 
 	pmic_reset_irq = PM8058_IRQ_BASE + PM8058_RESOUT_IRQ;
+	platform_device_register(&msm_gpio_device);
 	/*
 	 * Initialize RPM first as other drivers and devices may need
 	 * it for their initialization.

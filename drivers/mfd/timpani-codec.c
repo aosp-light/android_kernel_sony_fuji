@@ -1,6 +1,5 @@
-/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
- * Copyright (C) 2012, Sony Ericsson Mobile Communications AB
- * Copyright (C) 2012 Sony Mobile Communications AB.
+/* Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2012 Sony Ericsson Mobile Communications AB
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -3116,7 +3115,6 @@ static int timpani_adie_codec_proceed_stage(struct adie_codec_path *path_ptr,
 
 static void timpani_codec_bring_up(void)
 {
-	pr_debug("%s: timpani codec bringup !\n", __func__);
 	/* Codec power up sequence */
 	adie_codec_write(0xFF, 0xFF, 0x08);
 	adie_codec_write(0xFF, 0xFF, 0x0A);
@@ -3136,7 +3134,6 @@ static void timpani_codec_bring_up(void)
 
 static void timpani_codec_bring_down(void)
 {
-	pr_debug("%s: timpani codec bringdown !\n", __func__);
 	adie_codec_write(TIMPANI_A_MREF, 0xFF, TIMPANI_MREF_POR);
 	adie_codec_write(0xFF, 0xFF, 0x07);
 	adie_codec_write(0xFF, 0xFF, 0x06);

@@ -23,6 +23,7 @@ config ARM
 	select HAVE_GENERIC_DMA_COHERENT
 	select HAVE_KERNEL_GZIP
 	select HAVE_KERNEL_LZO
+	select HAVE_KERNEL_LZ4
 	select HAVE_KERNEL_LZMA
 	select HAVE_KERNEL_XZ
 	select HAVE_IRQ_WORK
@@ -32,6 +33,8 @@ config ARM
 	#select HAVE_HW_BREAKPOINT if (PERF_EVENTS && (CPU_V6 || CPU_V6K || CPU_V7))
 	select HAVE_C_RECORDMCOUNT
 	select HAVE_GENERIC_HARDIRQS
+	select HAVE_SPARSE_IRQ
+	select HAVE_ARCH_SECCOMP_FILTER
 	select GENERIC_IRQ_SHOW
 	select CPU_PM if (SUSPEND || CPU_IDLE)
 	select GENERIC_PCI_IOMAP
@@ -49,11 +52,13 @@ config ARM_HAS_SG_CHAIN
 
 config NEED_SG_DMA_LENGTH
 	bool
-config ARM_DMA_USE_IOMMU
+
+config ARM_DMA_USE_IOMMU
 	select NEED_SG_DMA_LENGTH
 	select ARM_HAS_SG_CHAIN
 	bool
-config HAVE_PWM
+
+config HAVE_PWM
 	bool
 
 config MIGHT_HAVE_PCI
@@ -211,13 +216,17 @@ config NEED_RET_TO_USER
 config ARCH_MTD_XIP
 	bool
 
+config ARCH_WANT_KMAP_ATOMIC_FLUSH
+	bool
+
 config VECTORS_BASE
 	hex
 	default 0xffff0000 if MMU || CPU_HIGH_VECTOR
 	default DRAM_BASE if REMAP_VECTORS_TO_RAM
 	default 0x00000000
 	help
-	  The base address of exception vectors.
+	  The base address of exception vectors.  This must be two pages
+	  in size.
 
 config ARM_PATCH_PHYS_VIRT
 	bool "Patch physical to virtual translations at runtime" if EMBEDDED
@@ -1439,17 +1448,6 @@ config PL310_ERRATA_769419
 	  on systems with an outer cache, the store buffer is drained
 	  explicitly.
 
-config PL310_ERRATA_727915
-	bool "Background Clean & Invalidate by Way operation can cause data corruption"
-	depends on CACHE_L2X0
-	help
-	  PL310 implements the Clean & Invalidate by Way L2 cache maintenance
-	  operation (offset 0x7FC). This operation runs in background so that
-	  PL310 can handle normal accesses while it is in progress. Under very
-	  rare circumstances, due to this erratum, write data can be lost when
-	  PL310 treats a cacheable write transaction during a Clean &
-	  Invalidate by Way operation.
-
 config KSAPI
         tristate "KSAPI support (EXPERIMENTAL)"
 	depends on ARCH_MSM_SCORPION || ARCH_MSM_KRAIT
@@ -1525,32 +1523,6 @@ config PCI_HOST_ITE8152
 source "drivers/pci/Kconfig"
 
 source "drivers/pcmcia/Kconfig"
-
-config ARM_ERRATA_764369
-	bool "ARM errata: Data cache line maintenance operation by MVA may not succeed"
-	depends on CPU_V7 && SMP
-	help
-	  This option enables the workaround for erratum 764369
-	  affecting Cortex-A9 MPCore with two or more processors (all
-	  current revisions). Under certain timing circumstances, a data
-	  cache line maintenance operation by MVA targeting an Inner
-	  Shareable memory region may fail to proceed up to either the
-	  Point of Coherency or to the Point of Unification of the
-	  system. This workaround adds a DSB instruction before the
-	  relevant cache maintenance functions and sets a specific bit
-	  in the diagnostic control register of the SCU.
-
-config PL310_ERRATA_769419
-	bool "PL310 errata: no automatic Store Buffer drain"
-	depends on CACHE_L2X0
-	help
-	  On revisions of the PL310 prior to r3p2, the Store Buffer does
-	  not automatically drain. This can cause normal, non-cacheable
-	  writes to be retained when the memory system is idle, leading
-	  to suboptimal I/O performance for drivers using coherent DMA.
-	  This option adds a write barrier to the cpu_idle loop so that,
-	  on systems with an outer cache, the store buffer is drained
-	  explicitly.
 
 endmenu
 
@@ -1841,22 +1813,12 @@ config HW_PERF_EVENTS
 	  Enable hardware performance counter support for perf events. If
 	  disabled, perf events will use software events only.
 
-config VMALLOC_RESERVE
-	hex "Reserved vmalloc space"
-	default 0x08000000
-	depends on MMU
-	help
-	  Reserved vmalloc space if not specified on the kernel commandline.
-
 source "mm/Kconfig"
 
 config ARCH_MEMORY_PROBE
 	def_bool n
 
 config ARCH_MEMORY_REMOVE
-	def_bool n
-
-config ARCH_POPULATES_NODE_MAP
 	def_bool n
 
 config ENABLE_DMM
@@ -2216,13 +2178,6 @@ config KEXEC
 	  is properly shutdown, so do not be surprised if this code does not
 	  initially work for you.  It may help to enable device hotplugging
 	  support.
-
-config CRASH_NOTES
-	bool "Support for storing crash_notes"
-	default n
-	help
-	  Expose crash_notes and fill it with register values at the time of
-	  panic.
 
 config ATAGS_PROC
 	bool "Export atags in procfs"

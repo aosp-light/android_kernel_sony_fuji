@@ -53,7 +53,6 @@ static struct vfsmount *shm_mnt;
 #include <linux/blkdev.h>
 #include <linux/pagevec.h>
 #include <linux/percpu_counter.h>
-#include <linux/falloc.h>
 #include <linux/splice.h>
 #include <linux/security.h>
 #include <linux/swapops.h>
@@ -76,6 +75,16 @@ static struct vfsmount *shm_mnt;
 
 /* Symlink up to this size is kmalloc'ed instead of using a swappable page */
 #define SHORT_SYMLINK_LEN 128
+
+/*
+ * vmtruncate_range() communicates with shmem_fault via
+ * inode->i_private (with i_mutex making sure that it has only one user at
+ * a time): we would prefer not to enlarge the shmem inode just for that.
+ */
+struct shmem_falloc {
+	pgoff_t start;		/* start of range currently being fallocated */
+	pgoff_t next;		/* the next page offset to be fallocated */
+};
 
 struct shmem_xattr {
 	struct list_head list;	/* anchored by shmem_inode_info->xattr_list */
@@ -430,23 +439,21 @@ void shmem_truncate_range(struct inode *inode, loff_t lstart, loff_t lend)
 	struct address_space *mapping = inode->i_mapping;
 	struct shmem_inode_info *info = SHMEM_I(inode);
 	pgoff_t start = (lstart + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
-	pgoff_t end = (lend + 1) >> PAGE_CACHE_SHIFT;
-	unsigned int partial_start = lstart & (PAGE_CACHE_SIZE - 1);
-	unsigned int partial_end = (lend + 1) & (PAGE_CACHE_SIZE - 1);
+	unsigned partial = lstart & (PAGE_CACHE_SIZE - 1);
+	pgoff_t end = (lend >> PAGE_CACHE_SHIFT);
 	struct pagevec pvec;
 	pgoff_t indices[PAGEVEC_SIZE];
 	long nr_swaps_freed = 0;
 	pgoff_t index;
 	int i;
 
-	if (lend == -1)
-		end = -1;	/* unsigned, so actually very big */
+	BUG_ON((lend & (PAGE_CACHE_SIZE - 1)) != (PAGE_CACHE_SIZE - 1));
 
 	pagevec_init(&pvec, 0);
 	index = start;
-	while (index < end) {
+	while (index <= end) {
 		pvec.nr = shmem_find_get_pages_and_swap(mapping, index,
-				min(end - index, (pgoff_t)PAGEVEC_SIZE),
+			min(end - index, (pgoff_t)PAGEVEC_SIZE - 1) + 1,
 							pvec.pages, indices);
 		if (!pvec.nr)
 			break;
@@ -455,7 +462,7 @@ void shmem_truncate_range(struct inode *inode, loff_t lstart, loff_t lend)
 			struct page *page = pvec.pages[i];
 
 			index = indices[i];
-			if (index >= end)
+			if (index > end)
 				break;
 
 			if (radix_tree_exceptional_entry(page)) {
@@ -479,39 +486,22 @@ void shmem_truncate_range(struct inode *inode, loff_t lstart, loff_t lend)
 		index++;
 	}
 
-	if (partial_start) {
+	if (partial) {
 		struct page *page = NULL;
 		shmem_getpage(inode, start - 1, &page, SGP_READ, NULL);
 		if (page) {
-			unsigned int top = PAGE_CACHE_SIZE;
-			if (start > end) {
-				top = partial_end;
-				partial_end = 0;
-			}
-			zero_user_segment(page, partial_start, top);
+			zero_user_segment(page, partial, PAGE_CACHE_SIZE);
 			set_page_dirty(page);
 			unlock_page(page);
 			page_cache_release(page);
 		}
 	}
-	if (partial_end) {
-		struct page *page = NULL;
-		shmem_getpage(inode, end, &page, SGP_READ, NULL);
-		if (page) {
-			zero_user_segment(page, 0, partial_end);
-			set_page_dirty(page);
-			unlock_page(page);
-			page_cache_release(page);
-		}
-	}
-	if (start >= end)
-		return;
 
 	index = start;
 	for ( ; ; ) {
 		cond_resched();
 		pvec.nr = shmem_find_get_pages_and_swap(mapping, index,
-				min(end - index, (pgoff_t)PAGEVEC_SIZE),
+			min(end - index, (pgoff_t)PAGEVEC_SIZE - 1) + 1,
 							pvec.pages, indices);
 		if (!pvec.nr) {
 			if (index == start)
@@ -519,7 +509,7 @@ void shmem_truncate_range(struct inode *inode, loff_t lstart, loff_t lend)
 			index = start;
 			continue;
 		}
-		if (index == start && indices[0] >= end) {
+		if (index == start && indices[0] > end) {
 			shmem_deswap_pagevec(&pvec);
 			pagevec_release(&pvec);
 			break;
@@ -529,7 +519,7 @@ void shmem_truncate_range(struct inode *inode, loff_t lstart, loff_t lend)
 			struct page *page = pvec.pages[i];
 
 			index = indices[i];
-			if (index >= end)
+			if (index > end)
 				break;
 
 			if (radix_tree_exceptional_entry(page)) {
@@ -1074,6 +1064,43 @@ static int shmem_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 	int error;
 	int ret = VM_FAULT_LOCKED;
 
+	/*
+	 * Trinity finds that probing a hole which tmpfs is punching can
+	 * prevent the hole-punch from ever completing: which in turn
+	 * locks writers out with its hold on i_mutex.  So refrain from
+	 * faulting pages into the hole while it's being punched, and
+	 * wait on i_mutex to be released if vmf->flags permits.
+	 */
+	if (unlikely(inode->i_private)) {
+		struct shmem_falloc *shmem_falloc;
+
+		spin_lock(&inode->i_lock);
+		shmem_falloc = inode->i_private;
+		if (!shmem_falloc ||
+		    vmf->pgoff < shmem_falloc->start ||
+		    vmf->pgoff >= shmem_falloc->next)
+			shmem_falloc = NULL;
+		spin_unlock(&inode->i_lock);
+		/*
+		 * i_lock has protected us from taking shmem_falloc seriously
+		 * once return from vmtruncate_range() went back up that stack.
+		 * i_lock does not serialize with i_mutex at all, but it does
+		 * not matter if sometimes we wait unnecessarily, or sometimes
+		 * miss out on waiting: we just need to make those cases rare.
+		 */
+		if (shmem_falloc) {
+			if ((vmf->flags & FAULT_FLAG_ALLOW_RETRY) &&
+			   !(vmf->flags & FAULT_FLAG_RETRY_NOWAIT)) {
+				up_read(&vma->vm_mm->mmap_sem);
+				mutex_lock(&inode->i_mutex);
+				mutex_unlock(&inode->i_mutex);
+				return VM_FAULT_RETRY;
+			}
+			/* cond_resched? Leave that to GUP or return to user */
+			return VM_FAULT_NOPAGE;
+		}
+	}
+
 	error = shmem_getpage(inode, vmf->pgoff, &vmf->page, SGP_CACHE, &ret);
 	if (error)
 		return ((error == -ENOMEM) ? VM_FAULT_OOM : VM_FAULT_SIGBUS);
@@ -1083,6 +1110,44 @@ static int shmem_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 		mem_cgroup_count_vm_event(vma->vm_mm, PGMAJFAULT);
 	}
 	return ret;
+}
+
+int vmtruncate_range(struct inode *inode, loff_t lstart, loff_t lend)
+{
+	/*
+	 * If the underlying filesystem is not going to provide
+	 * a way to truncate a range of blocks (punch a hole) -
+	 * we should return failure right now.
+	 * Only CONFIG_SHMEM shmem.c ever supported i_op->truncate_range().
+	 */
+	if (inode->i_op->truncate_range != shmem_truncate_range)
+		return -ENOSYS;
+
+	mutex_lock(&inode->i_mutex);
+	{
+		struct shmem_falloc shmem_falloc;
+		struct address_space *mapping = inode->i_mapping;
+		loff_t unmap_start = round_up(lstart, PAGE_SIZE);
+		loff_t unmap_end = round_down(1 + lend, PAGE_SIZE) - 1;
+
+		shmem_falloc.start = unmap_start >> PAGE_SHIFT;
+		shmem_falloc.next = (unmap_end + 1) >> PAGE_SHIFT;
+		spin_lock(&inode->i_lock);
+		inode->i_private = &shmem_falloc;
+		spin_unlock(&inode->i_lock);
+
+		if ((u64)unmap_end > (u64)unmap_start)
+			unmap_mapping_range(mapping, unmap_start,
+					    1 + unmap_end - unmap_start, 0);
+		shmem_truncate_range(inode, lstart, lend);
+		/* No need to unmap again: hole-punching leaves COWed pages */
+
+		spin_lock(&inode->i_lock);
+		inode->i_private = NULL;
+		spin_unlock(&inode->i_lock);
+	}
+	mutex_unlock(&inode->i_mutex);
+	return 0;
 }
 
 #ifdef CONFIG_NUMA
@@ -1479,31 +1544,6 @@ static ssize_t shmem_file_splice_read(struct file *in, loff_t *ppos,
 		*ppos += error;
 		file_accessed(in);
 	}
-	return error;
-}
-
-static long shmem_fallocate(struct file *file, int mode, loff_t offset,
-							 loff_t len)
-{
-	struct inode *inode = file->f_path.dentry->d_inode;
-	int error = -EOPNOTSUPP;
-
-	mutex_lock(&inode->i_mutex);
-
-	if (mode & FALLOC_FL_PUNCH_HOLE) {
-		struct address_space *mapping = file->f_mapping;
-		loff_t unmap_start = round_up(offset, PAGE_SIZE);
-		loff_t unmap_end = round_down(offset + len, PAGE_SIZE) - 1;
-
-		if ((u64)unmap_end > (u64)unmap_start)
-			unmap_mapping_range(mapping, unmap_start,
-					    1 + unmap_end - unmap_start, 0);
-		shmem_truncate_range(inode, offset, offset + len - 1);
-		/* No need to unmap again: hole-punching leaves COWed pages */
-		error = 0;
-	}
-
-	mutex_unlock(&inode->i_mutex);
 	return error;
 }
 
@@ -2407,7 +2447,6 @@ static const struct file_operations shmem_file_operations = {
 	.fsync		= noop_fsync,
 	.splice_read	= shmem_file_splice_read,
 	.splice_write	= generic_file_splice_write,
-	.fallocate	= shmem_fallocate,
 #endif
 };
 
@@ -2577,6 +2616,12 @@ void shmem_truncate_range(struct inode *inode, loff_t lstart, loff_t lend)
 	truncate_inode_pages_range(inode->i_mapping, lstart, lend);
 }
 EXPORT_SYMBOL_GPL(shmem_truncate_range);
+
+int vmtruncate_range(struct inode *inode, loff_t lstart, loff_t lend)
+{
+	/* Only CONFIG_SHMEM shmem.c ever supported i_op->truncate_range(). */
+	return -ENOSYS;
+}
 
 #define shmem_vm_ops				generic_file_vm_ops
 #define shmem_file_operations			ramfs_file_operations

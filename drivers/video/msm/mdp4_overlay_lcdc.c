@@ -334,6 +334,7 @@ void mdp4_lcdc_wait4vsync(int cndx)
 {
 	struct vsycn_ctrl *vctrl;
 	struct mdp4_overlay_pipe *pipe;
+	ktime_t timestamp;
 
 	if (cndx >= MAX_CONTROLLER) {
 		pr_err("%s: out or range: cndx=%d\n", __func__, cndx);
@@ -348,7 +349,8 @@ void mdp4_lcdc_wait4vsync(int cndx)
 
 	mdp4_lcdc_vsync_irq_ctrl(cndx, 1);
 
-	wait_event_interruptible_timeout(vctrl->wait_queue, 1,
+	wait_event_interruptible_timeout(vctrl->wait_queue,
+			!ktime_equal(timestamp, vctrl->vsync_time),
 			msecs_to_jiffies(VSYNC_PERIOD * 8));
 
 	mdp4_lcdc_vsync_irq_ctrl(cndx, 0);
@@ -575,8 +577,6 @@ int mdp4_lcdc_on(struct platform_device *pdev)
 	pipe->src_x = 0;
 	pipe->dst_h = fbi->var.yres;
 	pipe->dst_w = fbi->var.xres;
-	pipe->dst_y = 0;
-	pipe->dst_x = 0;
 
 	if (mfd->display_iova)
 		pipe->srcp0_addr = mfd->display_iova + buf_offset;

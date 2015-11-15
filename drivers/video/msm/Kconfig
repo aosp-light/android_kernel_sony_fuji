@@ -27,6 +27,13 @@ config FB_MSM_LOGO
 	---help---
 	  Show /initlogo.rle during boot.
 
+config FB_MSM_SONY_LOGO
+	bool "Sony Frame Buffer Logo"
+	depends on MACH_SEMC_FUJI
+	default y
+	---help---
+	  Show /logo.rle during boot.
+
 config FB_MSM_LCDC_HW
 	bool
 	default n
@@ -100,6 +107,13 @@ config FB_MSM_MDP_NONE
 	  Say Y here if this is mdm platform.
 
 endchoice
+
+config FB_MSM_MDP_LUT
+        bool "MDP LUT Control"
+        depends on FB_MSM_MDP_HW
+        default y
+        ---help---
+          Color Calibration Control
 
 config FB_MSM_EBI2
 	bool
@@ -454,6 +468,7 @@ config FB_MSM_OVERLAY0_WRITEBACK
         bool "MDP overlay0 write back mode enable"
 	---help---
 	  Support for MDP4 OVERLAY0 write back mode
+
 
 config FB_MSM_OVERLAY1_WRITEBACK
         depends on FB_MSM_OVERLAY
@@ -952,13 +967,6 @@ config FB_MSM_HDMI_MSM_PANEL_CEC_USES_UEVENT
 	---help---
 	  Support for sending uevent on recving CEC frame
 	  Choose to enable CEC uevent
-
-config FB_MSM_MHL_SII8334
-	depends on MHL && FB_MSM_HDMI_MSM_PANEL
-	bool "SiI8334 MHL Transmitter"
-	default n
-	---help---
-	  Support for SiI8334 MHL Transmitter
 
 config FB_MSM_HDMI_MHL_9244
 	depends on FB_MSM_HDMI_MSM_PANEL

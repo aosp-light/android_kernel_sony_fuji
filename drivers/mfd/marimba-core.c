@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2009-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -615,7 +615,7 @@ DEFINE_SIMPLE_ATTRIBUTE(dbg_addr_fops, addr_get, addr_set, "0x%03llX\n");
 static int __devinit marimba_dbg_init(int adie_type)
 {
 	struct adie_dbg_device *dbgdev;
-	struct dentry *dent = NULL;
+	struct dentry *dent;
 	struct dentry *temp;
 
 	dbgdev = kzalloc(sizeof *dbgdev, GFP_KERNEL);

@@ -623,8 +623,8 @@ static enum hrtimer_restart semc_battery_timer_func(struct hrtimer *timer)
 
 static void semc_battery_timer_worker(struct work_struct *work)
 {
-	int resistance;
-	int ambient_temp;
+	int resistance = 0;
+	int ambient_temp = 0;
 	enum battery_technology tech;
 	int tech_old = 0;
 	int temp_old = 0;
@@ -737,8 +737,7 @@ static int get_ext_supplier_data(struct device *dev, void *data)
 	unsigned int i;
 
 	for (i = 0; i < ext->num_supplicants; i++) {
-		if (strncmp(ext->supplied_to[i], psy->name,
-			sizeof(ext->supplied_to[i])))
+		if (strcmp(ext->supplied_to[i], psy->name))
 			continue;
 
 		if (!ext->get_property(ext, POWER_SUPPLY_PROP_STATUS, &ret)) {

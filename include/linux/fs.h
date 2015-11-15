@@ -17,8 +17,8 @@
  * nr_file rlimit, so it's safe to set up a ridiculously high absolute
  * upper limit on files-per-process.
  *
- * Some programs (notably those using select()) may have to be
- * recompiled to take full advantage of the new limits..
+ * Some programs (notably those using select()) may have to be 
+ * recompiled to take full advantage of the new limits..  
  */
 
 /* Fixed constants first: */
@@ -178,7 +178,7 @@ struct inodes_stat_t {
 #define SEL_EX		4
 
 /* public flags for file_system_type */
-#define FS_REQUIRES_DEV 1
+#define FS_REQUIRES_DEV 1 
 #define FS_BINARY_MOUNTDATA 2
 #define FS_HAS_SUBTYPE 4
 #define FS_REVAL_DOT	16384	/* Check the paths ".", ".." for staleness */
@@ -391,7 +391,7 @@ struct inodes_stat_t {
 #include <linux/cache.h>
 #include <linux/list.h>
 #include <linux/radix-tree.h>
-#include <linux/prio_tree.h>
+#include <linux/rbtree.h>
 #include <linux/init.h>
 #include <linux/pid.h>
 #include <linux/bug.h>
@@ -490,7 +490,7 @@ struct iattr {
  */
 #include <linux/quota.h>
 
-/**
+/** 
  * enum positive_aop_returns - aop return codes with specific semantics
  *
  * @AOP_WRITEPAGE_ACTIVATE: Informs the caller that page writeback has
@@ -500,7 +500,7 @@ struct iattr {
  * 			    be a candidate for writeback again in the near
  * 			    future.  Other callers must be careful to unlock
  * 			    the page if they get this return.  Returned by
- * 			    writepage();
+ * 			    writepage(); 
  *
  * @AOP_TRUNCATED_PAGE: The AOP method that was handed a locked page has
  *  			unlocked it and the page might have been truncated.
@@ -649,7 +649,7 @@ struct address_space {
 	struct radix_tree_root	page_tree;	/* radix tree of all pages */
 	spinlock_t		tree_lock;	/* and lock protecting it */
 	unsigned int		i_mmap_writable;/* count VM_SHARED mappings */
-	struct prio_tree_root	i_mmap;		/* tree of private and shared mappings */
+	struct rb_root		i_mmap;		/* tree of private and shared mappings */
 	struct list_head	i_mmap_nonlinear;/*list VM_NONLINEAR mappings */
 	struct mutex		i_mmap_mutex;	/* protect tree, count, list */
 	/* Protected by tree_lock together with the radix tree */
@@ -721,7 +721,7 @@ int mapping_tagged(struct address_space *mapping, int tag);
  */
 static inline int mapping_mapped(struct address_space *mapping)
 {
-	return	!prio_tree_empty(&mapping->i_mmap) ||
+	return	!RB_EMPTY_ROOT(&mapping->i_mmap) ||
 		!list_empty(&mapping->i_mmap_nonlinear);
 }
 
@@ -1078,10 +1078,10 @@ static inline int file_check_writeable(struct file *filp)
 
 #define	MAX_NON_LFS	((1UL<<31) - 1)
 
-/* Page cache limit. The filesystems should put that into their s_maxbytes
-   limits, otherwise bad things can happen in VM. */
+/* Page cache limit. The filesystems should put that into their s_maxbytes 
+   limits, otherwise bad things can happen in VM. */ 
 #if BITS_PER_LONG==32
-#define MAX_LFS_FILESIZE	(((u64)PAGE_CACHE_SIZE << (BITS_PER_LONG-1))-1)
+#define MAX_LFS_FILESIZE	(((u64)PAGE_CACHE_SIZE << (BITS_PER_LONG-1))-1) 
 #elif BITS_PER_LONG==64
 #define MAX_LFS_FILESIZE 	0x7fffffffffffffffUL
 #endif
@@ -2282,7 +2282,7 @@ extern void free_write_pipe(struct file *);
 
 extern int kernel_read(struct file *, loff_t, char *, unsigned long);
 extern struct file * open_exec(const char *);
-
+ 
 /* fs/dcache.c -- generic fs support functions */
 extern int is_subdir(struct dentry *, struct dentry *);
 extern int path_is_under(struct path *, struct path *);

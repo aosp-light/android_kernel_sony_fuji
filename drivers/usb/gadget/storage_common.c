@@ -4,8 +4,6 @@
  * Copyright (C) 2003-2008 Alan Stern
  * Copyeight (C) 2009 Samsung Electronics
  * Author: Michal Nazarewicz (mina86@mina86.com)
- * Copyright (C) 2011-2012 Sony Ericsson Mobile Communications AB.
- * Copyright (C) 2012 Sony Mobile Communications AB.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -184,26 +182,14 @@ struct interrupt_data {
 #define ASC(x)		((u8) ((x) >> 8))
 #define ASCQ(x)		((u8) (x))
 
-#define RANDOM_WRITE_COUNT_TO_BE_FLUSHED (10)
-
-/* VPD(Vital product data) Page Name */
-#define VPD_SUPPORTED_VPD_PAGES		0x00
-#define VPD_UNIT_SERIAL_NUMBER		0x80
-#define VPD_DEVICE_IDENTIFICATION	0x83
 
 /*-------------------------------------------------------------------------*/
 
-#ifdef CONFIG_USB_KDDI_SCSI_EXTENSIONS
-struct kddi_data;
-#endif
 
 struct fsg_lun {
 	struct file	*filp;
 	loff_t		file_length;
 	loff_t		num_sectors;
-
-	u8		random_write_count;
-	loff_t		last_offset;
 
 	unsigned int	initially_ro:1;
 	unsigned int	ro:1;
@@ -221,7 +207,6 @@ struct fsg_lun {
 	unsigned int	blkbits;	/* Bits of logical block size of bound block device */
 	unsigned int	blksize;	/* logical block size of bound block device */
 	struct device	dev;
-	char		*lun_filename;
 #ifdef CONFIG_USB_MSC_PROFILING
 	spinlock_t	lock;
 	struct {
@@ -232,9 +217,6 @@ struct fsg_lun {
 		ktime_t wtime;
 	} perf;
 
-#endif
-#ifdef CONFIG_USB_KDDI_SCSI_EXTENSIONS
-	struct kddi_data *kddi_data;
 #endif
 };
 
@@ -757,9 +739,6 @@ out:
 static void fsg_lun_close(struct fsg_lun *curlun)
 {
 	if (curlun->filp) {
-		curlun->last_offset = 0;
-		curlun->random_write_count = 0;
-
 		LDBG(curlun, "close backing file\n");
 		fput(curlun->filp);
 		curlun->filp = NULL;
@@ -776,18 +755,10 @@ static void fsg_lun_close(struct fsg_lun *curlun)
 static int fsg_lun_fsync_sub(struct fsg_lun *curlun)
 {
 	struct file	*filp = curlun->filp;
-	int rc = 0;
 
 	if (curlun->ro || !filp)
 		return 0;
-
-	rc = vfs_fsync(filp, 1);
-	if (!rc) {
-		curlun->last_offset = 0;
-		curlun->random_write_count = 0;
-	}
-
-	return rc;
+	return vfs_fsync(filp, 1);
 }
 
 static void store_cdrom_address(u8 *dest, int msf, u32 addr)
@@ -828,14 +799,6 @@ static ssize_t fsg_show_nofua(struct device *dev, struct device_attribute *attr,
 	struct fsg_lun	*curlun = fsg_lun_from_dev(dev);
 
 	return sprintf(buf, "%u\n", curlun->nofua);
-}
-
-static ssize_t fsg_show_cdrom (struct device *dev, struct device_attribute *attr,
-			   char *buf)
-{
-	struct fsg_lun  *curlun = fsg_lun_from_dev(dev);
-
-	return sprintf(buf, "%d\n", curlun->cdrom);
 }
 
 #ifdef CONFIG_USB_MSC_PROFILING
@@ -981,58 +944,15 @@ static ssize_t fsg_store_file(struct device *dev, struct device_attribute *attr,
 	if (fsg_lun_is_open(curlun)) {
 		fsg_lun_close(curlun);
 		curlun->unit_attention_data = SS_MEDIUM_NOT_PRESENT;
-		kfree(curlun->lun_filename);
-		curlun->lun_filename = NULL;
 	}
 
 	/* Load new medium */
 	if (count > 0 && buf[0]) {
 		rc = fsg_lun_open(curlun, buf);
-		if (rc == 0) {
-			kfree(curlun->lun_filename);
-			curlun->lun_filename = kmalloc(count+1, GFP_KERNEL);
-			if (!curlun->lun_filename) {
-				rc = -ENOMEM;
-				fsg_lun_close(curlun);
-				curlun->unit_attention_data =
-					SS_MEDIUM_NOT_PRESENT;
-			} else {
-				memcpy(curlun->lun_filename, buf, count);
-				curlun->lun_filename[count] = '\0';
-				curlun->unit_attention_data =
+		if (rc == 0)
+			curlun->unit_attention_data =
 					SS_NOT_READY_TO_READY_TRANSITION;
-			}
-		}
 	}
 	up_write(filesem);
 	return (rc < 0 ? rc : count);
-}
-
-static ssize_t fsg_store_cdrom(struct device *dev, struct device_attribute *attr,
-				  const char *buf, size_t count)
-{
-	ssize_t    rc;
-	struct fsg_lun  *curlun = fsg_lun_from_dev(dev);
-	struct rw_semaphore  *filesem = dev_get_drvdata(dev);
-	unsigned  cdrom;
-
-	rc = kstrtouint(buf, 2, &cdrom);
-	if (rc)
-		return rc;
-
-	/*
-	 * Allow the cdrom status to change only while the
-	 * backing file is closed.
-	 */
-	down_read(filesem);
-	if (fsg_lun_is_open(curlun)) {
-		LDBG(curlun, "cdrom status change prevented\n");
-		rc = -EBUSY;
-	} else {
-		curlun->cdrom = cdrom;
-		LDBG(curlun, "cdrom status set to %d\n", curlun->cdrom);
-		rc = count;
-	}
-	up_read(filesem);
-	return rc;
 }

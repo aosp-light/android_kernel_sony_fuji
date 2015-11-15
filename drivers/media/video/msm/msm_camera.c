@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2009-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -35,6 +35,7 @@
 #include <linux/syscalls.h>
 #include <linux/hrtimer.h>
 #include <linux/msm_ion.h>
+
 #include <mach/cpuidle.h>
 DEFINE_MUTEX(ctrl_cmd_lock);
 
@@ -58,8 +59,7 @@ static int camera_node;
 static enum msm_camera_type camera_type[MSM_MAX_CAMERA_SENSORS];
 static uint32_t sensor_mount_angle[MSM_MAX_CAMERA_SENSORS];
 
-/* TODO: temporary use the no-NULL check the ION client created */
-struct ion_client *client_for_ion = NULL;
+struct ion_client *client_for_ion;
 
 static const char *vfe_config_cmd[] = {
 	"CMD_GENERAL",  /* 0 */
@@ -3091,8 +3091,7 @@ static int __msm_release(struct msm_sync *sync)
 		sync->core_powered_on = 0;
 	}
 	mutex_unlock(&sync->lock);
-/* TODO: temporary donot destroy the ION client */
-	/*ion_client_destroy(client_for_ion);*/
+	ion_client_destroy(client_for_ion);
 
 	return 0;
 }
@@ -3797,9 +3796,7 @@ static int __msm_open(struct msm_cam_device *pmsm, const char *const apps_id,
 		sync->core_powered_on = 1;
 	}
 	sync->opencnt++;
-/* TODO: temporary use the no-NULL check the ION client created */
-        if (client_for_ion == NULL)
-		client_for_ion = msm_ion_client_create(-1, "camera");
+	client_for_ion = msm_ion_client_create(-1, "camera");
 
 msm_open_done:
 	mutex_unlock(&sync->lock);
@@ -3965,7 +3962,7 @@ static int msm_sync_init(struct msm_sync *sync,
 	msm_queue_init(&sync->vpe_q, "vpe");
 
 	pm_qos_add_request(&sync->idle_pm_qos, PM_QOS_CPU_DMA_LATENCY,
-		PM_QOS_DEFAULT_VALUE);
+					   PM_QOS_DEFAULT_VALUE);
 
 	rc = msm_camio_probe_on(pdev);
 	if (rc < 0) {
